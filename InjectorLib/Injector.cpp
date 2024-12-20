@@ -8,6 +8,9 @@
 #define DLL_EXPORT extern "C" __declspec(dllexport) 
 
 
+HMODULE *module = new HMODULE;
+
+
 static bool verify_injection(PROCESSENTRY32 *pe, const wchar_t *module, bool log_name)
 {
 	HANDLE snapshot;
@@ -125,7 +128,6 @@ out_close:
 
 DLL_EXPORT int HookLibrary(LPCWSTR module_path, HHOOK *hook, HANDLE *mutex)
 {
-	HMODULE module;
 	FARPROC fn;
 	//wchar_t module_full_path[MAX_PATH];
 
@@ -143,8 +145,8 @@ DLL_EXPORT int HookLibrary(LPCWSTR module_path, HHOOK *hook, HANDLE *mutex)
 	//SetDllDirectory(L"SUBDIR");
 	//module = LoadLibraryExW(L"d3d11.dll", NULL, LOAD_LIBRARY_SEARCH_USER_DIRS | LOAD_LIBRARY_SEARCH_SYSTEM32);
 
-	module = LoadLibraryExW(module_path, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-	if (!module) {
+	*module = LoadLibraryExW(module_path, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+	if (!*module) {
 		//printf("Error loading dll: %d/n", GetLastError());
 		return 200;
 	}
@@ -153,14 +155,14 @@ DLL_EXPORT int HookLibrary(LPCWSTR module_path, HHOOK *hook, HANDLE *mutex)
 	//printf("Loaded %S\n\n", module_full_path);
 
 	// Check if dll has CBTProc callback
-	fn = GetProcAddress(module, "CBTProc");
+	fn = GetProcAddress(*module, "CBTProc");
 	if (!fn) {
 		return 300;
 	}
 
 	// Setup hook for loaded dll
-	*hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)fn, module, 0);
-	if (!hook) {
+	*hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)fn, *module, 0);
+	if (!*hook) {
 		return 400;
 	}
 
@@ -186,8 +188,11 @@ DLL_EXPORT int WaitForInjection(LPCWSTR module_path, LPCWSTR target_process, int
 DLL_EXPORT int UnhookLibrary(HHOOK *hook, HANDLE* mutex)
 {
 	CloseHandle(*mutex);
-	if (UnhookWindowsHookEx(*hook))
-		return EXIT_SUCCESS;
+	if (UnhookWindowsHookEx(*hook)) {
+		if (FreeLibrary(*module)) {
+			return EXIT_SUCCESS;
+		}
+	}
 	return EXIT_FAILURE;
 }
 
