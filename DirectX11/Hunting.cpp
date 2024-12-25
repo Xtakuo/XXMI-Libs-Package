@@ -2012,6 +2012,9 @@ void ParseHuntingSection()
 	// Don't register hunting keys when hard disabled. In this case the
 	// only way to turn hunting on is to edit the ini file and reload it.
 	if (G->hunting == HUNTING_MODE_DISABLED)
+		// There are glitches related to ShaderRegex processing for reloaded inis and shader compilation with `hunting = 0`
+		// So we better make sure that hunting mode won't actually be ever fully disabled
+		G->hunting = HUNTING_MODE_SOFT_DISABLED;
 		return;
 
 	// Let's also allow an easy toggle of hunting itself, for speed and playability.
