@@ -92,7 +92,7 @@ static bool verify_intended_target_late()
 
 static bool InitializeDLL()
 {
-	locale::global(locale("en_US.UTF-8"));
+	setlocale(LC_CTYPE, "en_US.UTF-8");
 
 	if (G->gInitialized)
 		return true;
