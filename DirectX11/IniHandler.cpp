@@ -2906,14 +2906,24 @@ static void parse_texture_override_common(const wchar_t *id, TextureOverride *ov
 	override->width_multiply = GetIniFloat(id, L"width_multiply", 1.0f, NULL);
 	override->height_multiply = GetIniFloat(id, L"height_multiply", 1.0f, NULL);
 
-	// Next 2 parameters are used to override byte_width on buffer creation
-	// byte_width = override_byte_stride * override_vertex_count
-	override->override_byte_stride = GetIniInt(id, L"override_byte_stride", -1, NULL);
-	override->override_vertex_count = (int)GetConstantIniVariable(id, L"override_vertex_count", -1.0f, &found);
-	// Fall back to 8MB buffer to mimic GIMI defaults when VertexLimitRaise is set in section header
-	if (override->override_vertex_count == -1 && wcsstr(override->ini_section.c_str(), L"VertexLimitRaise") != 0) {
-		override->override_byte_stride = 1;
-		override->override_vertex_count = 8388608;
+
+	// Handle buffer resize aka vertex limit raise feature.
+	int override_vertex_count = (int)GetConstantIniVariable(id, L"override_vertex_count", -1.0f, &found);
+	if (override_vertex_count > 0) {
+		// Ensure that stride is specified.
+		int override_byte_stride = GetIniInt(id, L"override_byte_stride", -1, NULL);
+		if (override_byte_stride <= 0) {
+			LogOverlayW(LOG_DIRE, L"Failed to detect stride for override_vertex_count=%d, please set override_byte_stride!\n - [%ls]\n", override_vertex_count, override->ini_section.c_str());
+			return;
+		}
+		// Override buffer size according to section params.
+		override->override_byte_width = override_byte_stride * override_vertex_count;
+	} else if(wcsstr(override->ini_section.c_str(), L"VertexLimitRaise") != 0) {
+		// Fall back to ~8MB buffer to mimic original GIMI behaviour if `VertexLimitRaise` keyword is found in the section header.
+		override->override_byte_width = 8800000;
+	} else {
+		// Do not override original buffer size.
+		override->override_byte_width = -1;
 	}
 	
 	if (GetIniString(id, L"Iteration", 0, setting, MAX_PATH))
@@ -3175,6 +3185,45 @@ static void warn_if_duplicate_texture_hash(TextureOverride *override, uint32_t h
 	}
 }
 
+static void index_byte_width_override(TextureOverride* override, uint32_t hash, map<uint32_t, int>& max_byte_width_map)
+{
+	map<uint32_t, int>::iterator max_byte_width;
+
+	max_byte_width = max_byte_width_map.find(hash);
+	if (max_byte_width == max_byte_width_map.end() || max_byte_width->second < override->override_byte_width) {
+		max_byte_width_map[hash] = override->override_byte_width;
+	}
+}
+
+static void update_byte_width_overrides(map<uint32_t, int>& max_byte_width_map)
+{
+	map<uint32_t, int>::iterator max_byte_width;
+
+	TextureOverrideMap::iterator i;
+	TextureOverrideList::iterator j;
+	TextureOverride* t;
+
+	for (max_byte_width = max_byte_width_map.begin(); max_byte_width != max_byte_width_map.end(); max_byte_width++) {
+		//IniWarningW(L"Evaluated target size for %08lx buffer: %d", max_byte_width->first, max_byte_width->second);
+
+		i = lookup_textureoverride(max_byte_width->first);
+
+		if (i == G->mTextureOverrideMap.end())
+			return;
+
+		for (j = i->second.begin(); j != i->second.end(); j++) {
+			t = &(*j);
+			if (t->override_byte_width < max_byte_width->second) {
+				//IniWarningW(L"Updated target size for %08lx buffer: %d -> %d\n - [%ls]\n", max_byte_width->first, t->override_byte_width, max_byte_width->second, t->ini_section.c_str());
+				t->override_byte_width = max_byte_width->second;
+			}
+			//else {
+			//	IniWarningW(L"Skipped target size update for %08lx buffer (%d -> %d)!\n - [%ls]\n", max_byte_width->first, t->override_byte_width, max_byte_width->second, t->ini_section.c_str());
+			//}
+		}
+	}
+}
+
 static void ParseTextureOverrideSections()
 {
 	IniSections::iterator lower, upper, i;
@@ -3182,6 +3231,7 @@ static void ParseTextureOverrideSections()
 	TextureOverride *override;
 	uint32_t hash;
 	bool found;
+	map<uint32_t, int> max_byte_width_map;
 
 	// Lock entire routine, this can be re-inited.  These shaderoverrides
 	// are unlikely to be changing much, but for consistency.
@@ -3223,7 +3273,15 @@ static void ParseTextureOverrideSections()
 		// Warn if same hash is used two or more times in sections that
 		// do not have a draw context match or match_priority:
 		warn_if_duplicate_texture_hash(override, hash);
+
+		// Record the largest `override_byte_width` value for the hash.
+		if (override->override_byte_width != -1) {
+			index_byte_width_override(override, hash, max_byte_width_map);
+		}
 	}
+
+	// Apply the largest per-hash buffer size overridesto all relevant TextureOverride sections.
+	update_byte_width_overrides(max_byte_width_map);
 
 	for (auto &tolkv : G->mTextureOverrideMap) {
 		// Sort the TextureOverride sections sharing the same hash to
