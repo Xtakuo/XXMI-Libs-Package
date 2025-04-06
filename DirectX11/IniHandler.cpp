@@ -41,19 +41,19 @@ struct Section {
 	bool prefix;
 };
 static Section CommandListSections[] = {
-	{L"ShaderOverride", true},
-	{L"ShaderRegex", true},
 	{L"TextureOverride", true},
-	{L"CustomShader", true},
 	{L"CommandList", true},
-	{L"BuiltInCustomShader", true},
-	{L"BuiltInCommandList", true},
+	{L"Constants", false},
 	{L"Present", false},
+	{L"ShaderOverride", true},
+	{L"CustomShader", true},
+	{L"ShaderRegex", true},
+	{L"BuiltInCommandList", true},
+	{L"BuiltInCustomShader", true},
 	{L"ClearRenderTargetView", false},
 	{L"ClearDepthStencilView", false},
 	{L"ClearUnorderedAccessViewUint", false},
 	{L"ClearUnorderedAccessViewFloat", false},
-	{L"Constants", false},
 };
 
 // List all remaining sections so we can verify that every section listed in
@@ -62,27 +62,27 @@ static Section CommandListSections[] = {
 // list a section in both lists - put it above if it is a command list section,
 // and in this list if it is not:
 static Section RegularSections[] = {
+	{L"Resource", true},
+	{L"Key", true},
+	{L"Include", true}, // Prefix so that it may be namespaced to allow included files to include more files with relative paths
+	{L"Preset", true},
+	{L"Hunting", false},
 	{L"Logging", false},
 	{L"System", false},
 	{L"Device", false},
-	{L"Stereo", false},
 	{L"Rendering", false},
-	{L"Hunting", false},
-	{L"Profile", false},
-	{L"ConvergenceMap", false}, // Only used in nvapi wrapper
-	{L"Resource", true},
-	{L"Key", true},
-	{L"Preset", true},
-	{L"Include", true}, // Prefix so that it may be namespaced to allow included files to include more files with relative paths
 	{L"Loader", false},
+	{L"Profile", false},
+	{L"Stereo", false},
+	{L"ConvergenceMap", false},
 };
 
 // List of sections that will not trigger a warning if they contain a line
 // without an equals sign. All command lists are also permitted this privilege
 // to allow for cleaner flow control syntax (if/else/endif)
 static Section AllowLinesWithoutEquals[] = {
-	{L"Profile", false},
 	{L"ShaderRegex", true},
+	{L"Profile", false},
 };
 
 static bool whitelisted_duplicate_key(const wchar_t *section, const wchar_t *key)
