@@ -473,12 +473,12 @@ ID3D11DeviceContext* FrameAnalysisContext::GetDumpingContext()
 }
 
 void FrameAnalysisContext::Dump2DResourceImmediateCtx(ID3D11Texture2D *staging,
-		wstring filename, bool stereo, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format)
+		wstring filename, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format)
 {
 	HRESULT hr = S_OK, dont_care;
 	wchar_t dedupe_filename[MAX_PATH];
 	wstring save_filename;
-	wchar_t *wic_ext = (stereo ? L".jps" : L".jpg");
+	wchar_t *wic_ext = L".jpg";
 	size_t ext, save_ext;
 
 	save_filename = dedupe_tex2d_filename(staging, orig_desc, dedupe_filename, MAX_PATH, filename.c_str(), format);
@@ -542,7 +542,7 @@ void FrameAnalysisContext::Dump2DResourceImmediateCtx(ID3D11Texture2D *staging,
 }
 
 void FrameAnalysisContext::Dump2DResource(ID3D11Texture2D *resource, wchar_t
-		*filename, bool stereo, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format)
+		*filename, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format)
 {
 	HRESULT hr = S_OK;
 	ID3D11Texture2D *staging = resource;
@@ -563,24 +563,20 @@ void FrameAnalysisContext::Dump2DResource(ID3D11Texture2D *resource, wchar_t
 	if (!orig_desc)
 		desc = &staging_desc;
 
-	if (!DeferDump2DResource(staging, filename, stereo, desc, format))
-		Dump2DResourceImmediateCtx(staging, filename, stereo, desc, format);
+	if (!DeferDump2DResource(staging, filename, desc, format))
+		Dump2DResourceImmediateCtx(staging, filename, desc, format);
 
 	if (staging != resource)
 		staging->Release();
 }
 
 HRESULT FrameAnalysisContext::CreateStagingResource(ID3D11Texture2D **resource,
-		D3D11_TEXTURE2D_DESC desc, bool stereo, bool msaa, DXGI_FORMAT format)
+		D3D11_TEXTURE2D_DESC desc, bool msaa, DXGI_FORMAT format)
 {
-	NVAPI_STEREO_SURFACECREATEMODE orig_mode = NVAPI_STEREO_SURFACECREATEMODE_AUTO;
 	HRESULT hr;
 
 	// NOTE: desc is passed by value - this is intentional so we don't
 	// modify desc in the caller
-
-	if (stereo)
-		desc.Width *= 2;
 
 	if (msaa) {
 		// Resolving MSAA requires these flags:
@@ -615,24 +611,7 @@ HRESULT FrameAnalysisContext::CreateStagingResource(ID3D11Texture2D **resource,
 
 	LockResourceCreationMode();
 
-	if (analyse_options & FrameAnalysisOptions::STEREO) {
-		// If we are dumping stereo at all force surface creation mode
-		// to stereo (regardless of whether we are creating this double
-		// width) to prevent driver heuristics interfering. If the
-		// original surface was mono that's ok - thaks to the
-		// intermediate stages we'll end up with both eyes the same
-		// (without this one eye would be blank instead, which is
-		// arguably better since it will be immediately obvious, but
-		// risks missing the second perspective if the original
-		// resource was actually stereo)
-		Profiling::NvAPI_Stereo_GetSurfaceCreationMode(GetHackerDevice()->mStereoHandle, &orig_mode);
-		Profiling::NvAPI_Stereo_SetSurfaceCreationMode(GetHackerDevice()->mStereoHandle, NVAPI_STEREO_SURFACECREATEMODE_FORCESTEREO);
-	}
-
 	hr = GetHackerDevice()->GetPassThroughOrigDevice1()->CreateTexture2D(&desc, NULL, resource);
-
-	if (analyse_options & FrameAnalysisOptions::STEREO)
-		Profiling::NvAPI_Stereo_SetSurfaceCreationMode(GetHackerDevice()->mStereoHandle, orig_mode);
 
 	UnlockResourceCreationMode();
 
@@ -654,7 +633,7 @@ HRESULT FrameAnalysisContext::ResolveMSAA(ID3D11Texture2D *src,
 	// Resolve MSAA surfaces. Procedure copied from DirectXTK
 	// These need to have D3D11_USAGE_DEFAULT to resolve,
 	// so we need yet another intermediate texture:
-	hr = CreateStagingResource(&resolved, *srcDesc, false, true, format);
+	hr = CreateStagingResource(&resolved, *srcDesc, true, format);
 	if (FAILED(hr)) {
 		FALogErr(L"ResolveMSAA failed to create intermediate texture: 0x%x\n", hr);
 		return hr;
@@ -693,7 +672,7 @@ HRESULT FrameAnalysisContext::StageResource(ID3D11Texture2D *src,
 
 	*dst = NULL;
 
-	hr = CreateStagingResource(&staging, *srcDesc, false, false, format);
+	hr = CreateStagingResource(&staging, *srcDesc, false, format);
 	if (FAILED(hr)) {
 		FALogErr(L"StageResource failed to create intermediate texture: 0x%x\n", hr);
 		return hr;
@@ -717,66 +696,6 @@ err_release:
 	if (staging)
 		staging->Release();
 	return hr;
-}
-
-// TODO: Refactor this with StereoScreenShot().
-// Expects the reverse stereo blit to be enabled by the caller
-void FrameAnalysisContext::DumpStereoResource(ID3D11Texture2D *resource, wchar_t *filename, DXGI_FORMAT format)
-{
-	ID3D11Texture2D *stereoResource = NULL;
-	ID3D11Texture2D *tmpResource = NULL;
-	ID3D11Texture2D *src = resource;
-	D3D11_TEXTURE2D_DESC srcDesc;
-	D3D11_BOX srcBox;
-	HRESULT hr;
-	UINT item, level, index, width, height;
-
-	resource->GetDesc(&srcDesc);
-
-	hr = CreateStagingResource(&stereoResource, srcDesc, true, false, format);
-	if (FAILED(hr)) {
-		FALogErr(L"DumpStereoResource failed to create stereo texture: 0x%x\n", hr);
-		return;
-	}
-
-	if ((srcDesc.BindFlags & D3D11_BIND_DEPTH_STENCIL) ||
-	    (srcDesc.SampleDesc.Count > 1)) {
-		// Reverse stereo blit won't work on these surfaces directly
-		// since CopySubresourceRegion() will fail if the source and
-		// destination dimensions don't match, so use yet another
-		// intermediate staging resource first.
-		hr = StageResource(src, &srcDesc, &tmpResource, format);
-		if (FAILED(hr))
-			goto out;
-		src = tmpResource;
-	}
-
-	// Set the source box as per the nvapi documentation:
-	srcBox.left = 0;
-	srcBox.top = 0;
-	srcBox.front = 0;
-	srcBox.right = width = srcDesc.Width;
-	srcBox.bottom = height = srcDesc.Height;
-	srcBox.back = 1;
-
-	// Perform the reverse stereo blit on all sub-resources and mip-maps:
-	for (item = 0; item < srcDesc.ArraySize; item++) {
-		for (level = 0; level < srcDesc.MipLevels; level++) {
-			index = D3D11CalcSubresource(level, item, max(srcDesc.MipLevels, 1));
-			srcBox.right = width >> level;
-			srcBox.bottom = height >> level;
-			GetPassThroughOrigContext1()->CopySubresourceRegion(stereoResource, index, 0, 0, 0,
-					src, index, &srcBox);
-		}
-	}
-
-	Dump2DResource(stereoResource, filename, true, &srcDesc, format);
-
-	if (tmpResource)
-		tmpResource->Release();
-
-out:
-	stereoResource->Release();
 }
 
 static void copy_until_extension(wchar_t *txt_filename, const wchar_t *bin_filename, size_t size, wchar_t **pos, size_t *rem)
@@ -1591,7 +1510,7 @@ void FrameAnalysisContext::DumpDesc(DescType *desc, const wchar_t *filename)
 }
 
 bool FrameAnalysisContext::DeferDump2DResource(ID3D11Texture2D *staging,
-		wchar_t *filename, bool stereo, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format)
+		wchar_t *filename, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format)
 {
 	if (!(analyse_options & FrameAnalysisOptions::DEFRD_CTX_DELAY))
 		return false;
@@ -1605,7 +1524,7 @@ bool FrameAnalysisContext::DeferDump2DResource(ID3D11Texture2D *staging,
 	}
 
 	FALogInfo(L"Deferring Texture2D dump: %ls\n", filename);
-	deferred_tex2d->emplace_back(analyse_options, staging, filename, stereo, orig_desc, format);
+	deferred_tex2d->emplace_back(analyse_options, staging, filename, orig_desc, format);
 
 	return true;
 }
@@ -1680,8 +1599,7 @@ void FrameAnalysisContext::dump_deferred_resources(ID3D11CommandList *command_li
 				break;
 
 			this->analyse_options = i.analyse_options;
-			Dump2DResourceImmediateCtx(i.staging.Get(), i.filename,
-					i.stereo, &i.orig_desc, i.format);
+			Dump2DResourceImmediateCtx(i.staging.Get(), i.filename, &i.orig_desc, i.format);
 		}
 	}
 
@@ -1940,10 +1858,8 @@ void FrameAnalysisContext::DumpResource(ID3D11Resource *resource, wchar_t *filen
 			break;
 		case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
 			if (analyse_options & FrameAnalysisOptions::FMT_2D_MASK) {
-				if (analyse_options & FrameAnalysisOptions::STEREO)
-					DumpStereoResource((ID3D11Texture2D*)resource, filename, format);
 				if (analyse_options & FrameAnalysisOptions::MONO)
-					Dump2DResource((ID3D11Texture2D*)resource, filename, false, NULL, format);
+					Dump2DResource((ID3D11Texture2D*)resource, filename, NULL, format);
 			} else
 				FALogInfo(L"Skipped dumping Texture2D (No Texture2D formats enabled): %ls\n", filename);
 			break;
@@ -2424,7 +2340,7 @@ void FrameAnalysisContext::_DumpTextures(char shader_type, bool compute,
 		if (!views[i])
 			continue;
 
-		if (i == G->StereoParamsReg || i == G->IniParamsReg) {
+		if (i == G->IniParamsReg) {
 			FALogInfo(L"Skipped 3DMigoto resource in slot %Cs-t%i\n", shader_type, i);
 			continue;
 		}
@@ -2853,27 +2769,6 @@ void FrameAnalysisContext::update_per_draw_analyse_options()
 	oneshot_valid = false;
 }
 
-void FrameAnalysisContext::update_stereo_dumping_mode()
-{
-	NvU8 stereo = false;
-
-	NvAPIOverride();
-	Profiling::NvAPI_Stereo_IsEnabled(&stereo);
-	if (stereo)
-		Profiling::NvAPI_Stereo_IsActivated(GetHackerDevice()->mStereoHandle, &stereo);
-
-	if (!stereo) {
-		// 3D Vision is disabled, force mono dumping mode:
-		analyse_options &= (FrameAnalysisOptions)~FrameAnalysisOptions::STEREO_MASK;
-		analyse_options |= FrameAnalysisOptions::MONO;
-		return;
-	}
-
-	// If neither stereo or mono specified, default to stereo:
-	if (!(analyse_options & FrameAnalysisOptions::STEREO_MASK))
-		analyse_options |= FrameAnalysisOptions::STEREO;
-}
-
 void FrameAnalysisContext::set_default_dump_formats(bool draw)
 {
 	// Textures: default to .jps when possible, .bin otherwise:
@@ -2898,8 +2793,6 @@ void FrameAnalysisContext::set_default_dump_formats(bool draw)
 
 void FrameAnalysisContext::FrameAnalysisAfterDraw(bool compute, DrawCallInfo *call_info)
 {
-	NvAPI_Status nvret;
-
 	update_per_draw_analyse_options();
 
 	// Update: We now have an option to allow analysis on deferred
@@ -2909,7 +2802,7 @@ void FrameAnalysisContext::FrameAnalysisAfterDraw(bool compute, DrawCallInfo *ca
 	// but textures that come from the CPU, constant buffers, vertex
 	// buffers, etc that aren't changed on the GPU can still be useful.
 	//
-	// Later we might want to think about ways we could analyse render
+	// Later we might want to think about ways  we could analyse render
 	// targets & UAVs in deferred contexts - a simple approach would be to
 	// dump out the back buffer after executing a command list in the
 	// immediate context, however this would only show the combined result
@@ -2929,19 +2822,10 @@ void FrameAnalysisContext::FrameAnalysisAfterDraw(bool compute, DrawCallInfo *ca
 		return;
 	}
 
-	update_stereo_dumping_mode();
-	set_default_dump_formats(true);
+	analyse_options &= (FrameAnalysisOptions)~FrameAnalysisOptions::STEREO_MASK;
+	analyse_options |= FrameAnalysisOptions::MONO;
 
-	if ((analyse_options & FrameAnalysisOptions::FMT_2D_MASK) &&
-	    (analyse_options & FrameAnalysisOptions::STEREO) &&
-	    (GetDumpingContext()->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)) {
-		// Enable reverse stereo blit for all resources we are about to dump:
-		nvret = Profiling::NvAPI_Stereo_ReverseStereoBlitControl(GetHackerDevice()->mStereoHandle, true);
-		if (nvret != NVAPI_OK) {
-			FALogErr(L"DumpStereoResource failed to enable reverse stereo blit\n");
-			// Continue anyway, we should still be able to dump in 2D...
-		}
-	}
+	set_default_dump_formats(true);
 
 	// Grab the critical section now as we may need it several times during
 	// dumping for mResources
@@ -2968,12 +2852,6 @@ void FrameAnalysisContext::FrameAnalysisAfterDraw(bool compute, DrawCallInfo *ca
 		DumpDepthStencilTargets();
 
 	LeaveCriticalSection(&G->mCriticalSection);
-
-	if ((analyse_options & FrameAnalysisOptions::FMT_2D_MASK) &&
-	    (analyse_options & FrameAnalysisOptions::STEREO) &&
-	    (GetDumpingContext()->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)) {
-		Profiling::NvAPI_Stereo_ReverseStereoBlitControl(GetHackerDevice()->mStereoHandle, false);
-	}
 
 	draw_call++;
 }
@@ -3032,7 +2910,6 @@ void FrameAnalysisContext::FrameAnalysisDump(ID3D11Resource *resource, FrameAnal
 		const wchar_t *target, DXGI_FORMAT format, UINT stride, UINT offset)
 {
 	wchar_t filename[MAX_PATH];
-	NvAPI_Status nvret;
 	HRESULT hr;
 
 	analyse_options = options;
@@ -3048,18 +2925,10 @@ void FrameAnalysisContext::FrameAnalysisDump(ID3D11Resource *resource, FrameAnal
 		analyse_options |= FrameAnalysisOptions::DEFRD_CTX_DELAY;
 	}
 
-	update_stereo_dumping_mode();
-	set_default_dump_formats(false);
+	analyse_options &= (FrameAnalysisOptions)~FrameAnalysisOptions::STEREO_MASK;
+	analyse_options |= FrameAnalysisOptions::MONO;
 
-	if ((analyse_options & FrameAnalysisOptions::STEREO) &&
-	    (GetDumpingContext()->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)) {
-		// Enable reverse stereo blit for all resources we are about to dump:
-		nvret = Profiling::NvAPI_Stereo_ReverseStereoBlitControl(GetHackerDevice()->mStereoHandle, true);
-		if (nvret != NVAPI_OK) {
-			FALogErr(L"FrameAnalyisDump failed to enable reverse stereo blit\n");
-			// Continue anyway, we should still be able to dump in 2D...
-		}
-	}
+	set_default_dump_formats(false);
 
 	EnterCriticalSectionPretty(&G->mCriticalSection);
 
@@ -3073,11 +2942,6 @@ void FrameAnalysisContext::FrameAnalysisDump(ID3D11Resource *resource, FrameAnal
 		DumpResource(resource, filename, analyse_options, -1, format, stride, offset);
 
 	LeaveCriticalSection(&G->mCriticalSection);
-
-	if ((analyse_options & FrameAnalysisOptions::STEREO) &&
-	    (GetDumpingContext()->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)) {
-		Profiling::NvAPI_Stereo_ReverseStereoBlitControl(GetHackerDevice()->mStereoHandle, false);
-	}
 
 	non_draw_call_dump_counter++;
 }
@@ -3692,27 +3556,10 @@ STDMETHODIMP_(void) FrameAnalysisContext::ExecuteCommandList(THIS_
 		__in  ID3D11CommandList *pCommandList,
 		BOOL RestoreContextState)
 {
-	NvAPI_Status nvret;
-
 	FrameAnalysisLog("ExecuteCommandList(pCommandList:0x%p, RestoreContextState:%s)\n",
 			pCommandList, RestoreContextState ? "true" : "false");
 
-	if (G->analyse_frame) {
-		// Reverse stereo blit only applies to the immediate context - to work
-		// on a deferred context it must be enabled on the immediate context
-		// when the command list is executed. We don't know what options may
-		// have been used during the dump, so enable it unconditionally.
-		nvret = Profiling::NvAPI_Stereo_ReverseStereoBlitControl(GetHackerDevice()->mStereoHandle, true);
-		if (nvret != NVAPI_OK) {
-			FALogErr(L"FrameAnalyisDump failed to enable reverse stereo blit\n");
-			// Continue anyway, we should still be able to dump in 2D...
-		}
-	}
-
 	HackerContext::ExecuteCommandList(pCommandList, RestoreContextState);
-
-	if (G->analyse_frame)
-		Profiling::NvAPI_Stereo_ReverseStereoBlitControl(GetHackerDevice()->mStereoHandle, false);
 
 	dump_deferred_resources(pCommandList);
 }

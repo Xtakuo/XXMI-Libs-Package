@@ -12,7 +12,6 @@
 #include "log.h"
 #include "version.h"
 #include "D3D11Wrapper.h"
-//#include "nvapi.h"
 #include "Globals.h"
 #include "profiling.h"
 
@@ -85,8 +84,6 @@ Overlay::Overlay(HackerDevice *pDevice, HackerContext *pContext, IDXGISwapChain 
 	// Drawing environment for this swap chain. This is the game environment.
 	// These should specifically avoid Hacker* objects, to avoid object
 	// callbacks or other problems. We just want to draw here, nothing tricky.
-	// The only exception being that we need the HackerDevice in order to
-	// draw the current stereoparams.
 	mHackerDevice = pDevice;
 	mHackerContext = pContext;
 	mOrigSwapChain = pSwapChain;
@@ -202,9 +199,8 @@ using namespace DirectX::SimpleMath;
 // Notes:
 	//1) Active PS location(probably x / N format)
 	//2) Active VS location(x / N format)
-	//3) Current convergence and separation. (convergence, a must)
-	//4) Error state of reload(syntax errors go red or something)
-	//5) Duplicate Mark(maybe yellow text for location, red if Decompile failed)
+	//3) Error state of reload(syntax errors go red or something)
+	//4) Duplicate Mark(maybe yellow text for location, red if Decompile failed)
 
 	//Maybe:
 	//5) Other state, like show_original active.
@@ -566,8 +562,6 @@ static void AppendShaderText(wchar_t *fullLine, wchar_t *type, int pos, size_t s
 
 static void CreateShaderCountString(wchar_t *counts)
 {
-	const wchar_t *marking_mode;
-
 	wcscpy_s(counts, maxstring, L"");
 	// The order here more or less follows how important these are for
 	// shaderhacking. VS and PS are the absolute most important, CS is
@@ -585,10 +579,6 @@ static void CreateShaderCountString(wchar_t *counts)
 		AppendShaderText(counts, L"IB", G->mSelectedIndexBufferPos, G->mVisitedIndexBuffers.size());
 	if (G->mSelectedRenderTarget != (ID3D11Resource *)-1)
 		AppendShaderText(counts, L"RT", G->mSelectedRenderTargetPos, G->mVisitedRenderTargets.size());
-
-	marking_mode = lookup_enum_name(MarkingModeNames, G->marking_mode);
-	if (marking_mode)
-		wcscat_s(counts, maxstring, marking_mode);
 }
 
 
@@ -745,36 +735,12 @@ void Overlay::DrawProfiling(float *y)
 	mFontProfiling->DrawString(mSpriteBatch.get(), Profiling::text.c_str(), Vector2(0, *y), DirectX::Colors::Goldenrod);
 }
 
-// Create a string for display on the bottom edge of the screen, that contains the current
-// stereo info of separation and convergence. 
-// Desired format: "Sep:85  Conv:4.5"
-
-static void CreateStereoInfoString(StereoHandle stereoHandle, wchar_t *info)
+static void CreateInfoString(wchar_t* info)
 {
-	// Rather than draw graphic bars, this will just be numeric.  Because
-	// convergence is essentially an arbitrary number.
+	const wchar_t* marking_mode;
+	marking_mode = lookup_enum_name(MarkingModeNames, G->marking_mode);
 
-	float separation, convergence;
-	NvU8 stereo = !!stereoHandle;
-	if (stereo)
-	{
-		NvAPIOverride();
-		Profiling::NvAPI_Stereo_IsEnabled(&stereo);
-		if (stereo)
-		{
-			Profiling::NvAPI_Stereo_IsActivated(stereoHandle, &stereo);
-			if (stereo)
-			{
-				Profiling::NvAPI_Stereo_GetSeparation(stereoHandle, &separation);
-				Profiling::NvAPI_Stereo_GetConvergence(stereoHandle, &convergence);
-			}
-		}
-	}
-
-	if (stereo)
-		swprintf_s(info, maxstring, L"Sep:%.0f  Conv:%.2f", separation, convergence);
-	else
-		swprintf_s(info, maxstring, L"Stereo disabled");
+	swprintf_s(info, maxstring, L"Shader Hunting Mode (marking: %ls)", marking_mode);
 }
 
 void Overlay::DrawOverlay(void)
@@ -815,7 +781,7 @@ void Overlay::DrawOverlay(void)
 				DrawShaderInfoLines(&y);
 
 				// Bottom of screen
-				CreateStereoInfoString(mHackerDevice->mStereoHandle, osdString);
+				CreateInfoString(osdString);
 				strSize = mFont->MeasureString(osdString);
 				textPosition = Vector2(float(mResolution.x - strSize.x) / 2, float(mResolution.y - strSize.y - 10));
 				DrawOutlinedString(mFont.get(), osdString, textPosition, DirectX::Colors::LimeGreen);

@@ -61,7 +61,6 @@
     <ClCompile Include="IniHandler.cpp" />
     <ClCompile Include="Input.cpp" />
     <ClCompile Include="lock.cpp" />
-    <ClCompile Include="nvprofile.cpp" />
     <ClCompile Include="Overlay.cpp" />
     <ClCompile Include="Override.cpp" />
     <ClCompile Include="profiling.cpp" />
@@ -93,10 +92,9 @@
     <ClInclude Include="IniHandler.h" />
     <ClInclude Include="Input.h" />
     <ClInclude Include="lock.h" />
-    <ClInclude Include="nvprofile.h" />
     <ClInclude Include="Overlay.h" />
-    <ClInclude Include="Override.h" />
     <ClInclude Include="CommandList.h" />
+    <ClInclude Include="Override.h" />
     <ClInclude Include="profiling.h" />
     <ClInclude Include="ResourceHash.h" />
     <ClInclude Include="ShaderRegex.h" />
@@ -352,6 +350,7 @@ xcopy "$(SolutionDir)Dependencies\*.*" "$(TargetDir)"  /E /Y /s
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <BufferSecurityCheck>false</BufferSecurityCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp14</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

@@ -820,79 +820,6 @@ bail:
 	return false;
 }
 
-static bool ParseDirectModeSetActiveEyeCommand(const wchar_t *section,
-		const wchar_t *key, wstring *val,
-		CommandList *explicit_command_list,
-		CommandList *pre_command_list,
-		CommandList *post_command_list)
-{
-	DirectModeSetActiveEyeCommand *operation = new DirectModeSetActiveEyeCommand();
-
-	if (!wcscmp(val->c_str(), L"mono")) {
-		operation->eye = NVAPI_STEREO_EYE_MONO;
-		goto success;
-	}
-
-	if (!wcscmp(val->c_str(), L"left")) {
-		operation->eye = NVAPI_STEREO_EYE_LEFT;
-		goto success;
-	}
-
-	if (!wcscmp(val->c_str(), L"right")) {
-		operation->eye = NVAPI_STEREO_EYE_RIGHT;
-		goto success;
-	}
-
-	goto bail;
-
-success:
-	return AddCommandToList(operation, explicit_command_list, pre_command_list, NULL, NULL, section, key, val);
-
-bail:
-	delete operation;
-	return false;
-}
-
-static bool ParsePerDrawStereoOverride(const wchar_t *section,
-		const wchar_t *key, wstring *val,
-		CommandList *explicit_command_list,
-		CommandList *pre_command_list,
-		CommandList *post_command_list,
-		bool is_separation,
-		const wstring *ini_namespace)
-{
-	bool restore_on_post = !explicit_command_list && pre_command_list && post_command_list;
-	PerDrawStereoOverrideCommand *operation = NULL;
-
-	if (is_separation)
-		operation = new PerDrawSeparationOverrideCommand(restore_on_post);
-	else
-		operation = new PerDrawConvergenceOverrideCommand(restore_on_post);
-
-	// Try parsing value as a resource target for staging auto-convergence
-	// Do this first, because the operand parsing would treat these as for
-	// texture filtering
-	if (operation->staging_op.src.ParseTarget(val->c_str(), true, ini_namespace)) {
-		operation->staging_type = true;
-		goto success;
-	}
-
-	// The scope is shared between pre & post, we use pre here since it is never NULL
-	if (!operation->expression.parse(val, ini_namespace, pre_command_list->scope))
-		goto bail;
-
-success:
-	// Add to both command lists by default - the pre command list will set
-	// the value, and the post command list will restore the original. If
-	// an explicit command list is specified then the value will only be
-	// set, not restored (regardless of whether that is pre or post)
-	return AddCommandToList(operation, explicit_command_list, NULL, pre_command_list, post_command_list, section, key, val);
-
-bail:
-	delete operation;
-	return false;
-}
-
 static bool ParseFrameAnalysisDump(const wchar_t *section,
 		const wchar_t *key, wstring *val,
 		CommandList *explicit_command_list,
@@ -1043,15 +970,6 @@ bool ParseCommandListGeneralCommands(const wchar_t *section,
 
 	if (!wcscmp(key, L"clear"))
 		return ParseClearView(section, key, val, explicit_command_list, pre_command_list, post_command_list, ini_namespace);
-
-	if (!wcscmp(key, L"separation"))
-		return ParsePerDrawStereoOverride(section, key, val, explicit_command_list, pre_command_list, post_command_list, true, ini_namespace);
-
-	if (!wcscmp(key, L"convergence"))
-		return ParsePerDrawStereoOverride(section, key, val, explicit_command_list, pre_command_list, post_command_list, false, ini_namespace);
-
-	if (!wcscmp(key, L"direct_mode_eye"))
-		return ParseDirectModeSetActiveEyeCommand(section, key, val, explicit_command_list, pre_command_list, post_command_list);
 
 	if (!wcscmp(key, L"analyse_options"))
 		return AddCommandToList(new FrameAnalysisChangeOptionsCommand(val), explicit_command_list, pre_command_list, NULL, NULL, section, key, val);
@@ -1501,181 +1419,6 @@ void AbortCommand::run(CommandListState *state)
 	COMMAND_LIST_LOG(state, "[%S] handling = abort\n", ini_section.c_str());
 
 	state->aborted = true;
-}
-
-PerDrawStereoOverrideCommand::PerDrawStereoOverrideCommand(bool restore_on_post) :
-		staging_type(false),
-		val(FLT_MAX),
-		saved(FLT_MAX),
-		restore_on_post(restore_on_post),
-		did_set_value_on_pre(false)
-{}
-
-bool PerDrawStereoOverrideCommand::update_val(CommandListState *state)
-{
-	D3D11_MAPPED_SUBRESOURCE mapping;
-	HRESULT hr;
-	float tmp;
-	bool ret = false;
-
-	if (!staging_type)
-		return true;
-
-	if (staging_op.staging) {
-		hr = staging_op.map(state, &mapping);
-		if (FAILED(hr)) {
-			if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
-				COMMAND_LIST_LOG(state, "  Transfer in progress...\n");
-			else
-				COMMAND_LIST_LOG(state, "  Unknown error: 0x%x\n", hr);
-			return false;
-		}
-
-		// FIXME: Check if resource is at least 4 bytes (maybe we can
-		// use RowPitch, but MSDN contradicts itself so I'm not sure.
-		// Otherwise we can refer to the resource description)
-		tmp = ((float*)mapping.pData)[0];
-		staging_op.unmap(state);
-
-		if (isnan(tmp)) {
-			COMMAND_LIST_LOG(state, "  Disregarding NAN\n");
-		} else {
-			val = tmp;
-			ret = true;
-		}
-
-		// To make auto-convergence as responsive as possible, we start
-		// the next transfer as soon as we have retrieved the value
-		// from the previous transfer. This should minimise the number
-		// of frames displayed with wrong convergence on scene changes.
-	}
-
-	staging_op.staging = true;
-	staging_op.run(state);
-	return ret;
-}
-
-void PerDrawStereoOverrideCommand::run(CommandListState *state)
-{
-	COMMAND_LIST_LOG(state, "%S\n", ini_line.c_str());
-
-	if (!state->mHackerDevice->mStereoHandle) {
-		COMMAND_LIST_LOG(state, "  No Stereo Handle\n");
-		return;
-	}
-
-	if (restore_on_post) {
-		if (state->post) {
-			if (!did_set_value_on_pre)
-				return;
-			did_set_value_on_pre = false;
-
-			COMMAND_LIST_LOG(state, "  Restoring %s = %f\n", stereo_param_name(), saved);
-			set_stereo_value(state, saved);
-		} else {
-			if (staging_type) {
-				if (!(did_set_value_on_pre = update_val(state)))
-					return;
-			} else {
-				val = expression.evaluate(state);
-				did_set_value_on_pre = true;
-			}
-
-			saved = get_stereo_value(state);
-
-			COMMAND_LIST_LOG(state, "  Setting per-draw call %s = %f * %f = %f\n",
-					stereo_param_name(), val, saved, val * saved);
-
-			// The original ShaderOverride code multiplied the new
-			// separation and convergence by the old ones, so I'm
-			// doing that as well, but while that makes sense for
-			// separation, I'm not really convinced it makes sense
-			// for convergence. Still, the convergence override is
-			// generally only useful to use convergence=0 to move
-			// something to infinity, and in that case it won't
-			// matter.
-			set_stereo_value(state, val * saved);
-		}
-	} else {
-		if (staging_type) {
-			if (!update_val(state))
-				return;
-		} else
-			val = expression.evaluate(state);
-
-		COMMAND_LIST_LOG(state, "  Setting %s = %f\n", stereo_param_name(), val);
-		set_stereo_value(state, val);
-	}
-}
-
-bool PerDrawStereoOverrideCommand::optimise(HackerDevice *device)
-{
-	if (staging_type)
-		return false;
-	return expression.optimise(device);
-}
-
-bool PerDrawStereoOverrideCommand::noop(bool post, bool ignore_cto_pre, bool ignore_cto_post)
-{
-	NvU8 enabled = false;
-
-	NvAPIOverride();
-	Profiling::NvAPI_Stereo_IsEnabled(&enabled);
-	return !enabled;
-}
-
-void DirectModeSetActiveEyeCommand::run(CommandListState *state)
-{
-	COMMAND_LIST_LOG(state, "%S\n", ini_line.c_str());
-
-	if (NVAPI_OK != Profiling::NvAPI_Stereo_SetActiveEye(state->mHackerDevice->mStereoHandle, eye))
-		COMMAND_LIST_LOG(state, "  Stereo_SetActiveEye failed\n");
-}
-
-bool DirectModeSetActiveEyeCommand::noop(bool post, bool ignore_cto_pre, bool ignore_cto_post)
-{
-	NvU8 enabled = false;
-
-	NvAPIOverride();
-	Profiling::NvAPI_Stereo_IsEnabled(&enabled);
-	return !enabled;
-
-	// FIXME: Should also return false if direct mode is disabled...
-	// if only nvapi provided a GetDriverMode() API to determine that
-}
-
-float PerDrawSeparationOverrideCommand::get_stereo_value(CommandListState *state)
-{
-	float ret = 0.0f;
-
-	if (NVAPI_OK != Profiling::NvAPI_Stereo_GetSeparation(state->mHackerDevice->mStereoHandle, &ret))
-		COMMAND_LIST_LOG(state, "  Stereo_GetSeparation failed\n");
-
-	return ret;
-}
-
-void PerDrawSeparationOverrideCommand::set_stereo_value(CommandListState *state, float val)
-{
-	NvAPIOverride();
-	if (NVAPI_OK != Profiling::NvAPI_Stereo_SetSeparation(state->mHackerDevice->mStereoHandle, val))
-		COMMAND_LIST_LOG(state, "  Stereo_SetSeparation failed\n");
-}
-
-float PerDrawConvergenceOverrideCommand::get_stereo_value(CommandListState *state)
-{
-	float ret = 0.0f;
-
-	if (NVAPI_OK != Profiling::NvAPI_Stereo_GetConvergence(state->mHackerDevice->mStereoHandle, &ret))
-		COMMAND_LIST_LOG(state, "  Stereo_GetConvergence failed\n");
-
-	return ret;
-}
-
-void PerDrawConvergenceOverrideCommand::set_stereo_value(CommandListState *state, float val)
-{
-	NvAPIOverride();
-	if (NVAPI_OK != Profiling::NvAPI_Stereo_SetConvergence(state->mHackerDevice->mStereoHandle, val))
-		COMMAND_LIST_LOG(state, "  Stereo_SetConvergence failed\n");
 }
 
 FrameAnalysisChangeOptionsCommand::FrameAnalysisChangeOptionsCommand(wstring *val)
@@ -2132,7 +1875,7 @@ bool CustomShader::compile(char type, wchar_t *filename, const wstring *wname, c
 	}
 	CloseHandle(f);
 
-	// TODO: Add #defines for StereoParams and IniParams. Define a macro
+	// TODO: Add #defines for IniParams. Define a macro
 	// for the type of shader, and maybe allow more defines to be specified
 	// in the ini
 
@@ -3085,24 +2828,8 @@ static void UpdateCursorResources(CommandListState *state)
 		Profiling::end(&profiling_state, &Profiling::cursor_overhead);
 }
 
-static bool sli_enabled(HackerDevice *device)
-{
-	NV_GET_CURRENT_SLI_STATE sli_state;
-	sli_state.version = NV_GET_CURRENT_SLI_STATE_VER;
-	NvAPI_Status status;
-
-	status = Profiling::NvAPI_D3D_GetCurrentSLIState(device->GetPossiblyHookedOrigDevice1(), &sli_state);
-	if (status != NVAPI_OK) {
-		LogInfo("Unable to retrieve SLI state from nvapi\n");
-		return false;
-	}
-
-	return sli_state.maxNumAFRGroups > 1;
-}
-
 float CommandListOperand::evaluate(CommandListState *state, HackerDevice *device)
 {
-	NvU8 stereo = false;
 	float fret;
 
 	if (state)
@@ -3127,39 +2854,6 @@ float CommandListOperand::evaluate(CommandListState *state, HackerDevice *device
 			return (float)G->mResolutionInfo.height;
 		case ParamOverrideType::TIME:
 			return (float)G->gTime;
-		case ParamOverrideType::RAW_SEPARATION:
-			// We could use cached values of these (nvapi is known
-			// to become a bottleneck with too many calls / frame),
-			// but they need to be up to date, taking into account
-			// any changes made via the command list already this
-			// frame (this is used for snapshots and getting the
-			// current convergence regardless of whether an
-			// asynchronous transfer from the GPU has or has not
-			// completed) - StereoParams is currently unsuitable
-			// for this as it is only updated once / frame... We
-			// could change it so that StereoParams is always up to
-			// date - it would differ from the historical
-			// behaviour, but I doubt it would break anything.
-			// Otherwise we could have a separate cache. Whatever -
-			// this is rarely used, so let's just go with this for
-			// now and worry about optimisations only if it proves
-			// to be a bottleneck in practice:
-			Profiling::NvAPI_Stereo_GetSeparation(device->mStereoHandle, &fret);
-			return fret;
-		case ParamOverrideType::CONVERGENCE:
-			Profiling::NvAPI_Stereo_GetConvergence(device->mStereoHandle, &fret);
-			return fret;
-		case ParamOverrideType::EYE_SEPARATION:
-			Profiling::NvAPI_Stereo_GetEyeSeparation(device->mStereoHandle, &fret);
-			return fret;
-		case ParamOverrideType::STEREO_ACTIVE:
-			Profiling::NvAPI_Stereo_IsActivated(device->mStereoHandle, &stereo);
-			return !!stereo;
-		case ParamOverrideType::STEREO_AVAILABLE:
-			Profiling::NvAPI_Stereo_IsEnabled(&stereo);
-			return !!stereo;
-		case ParamOverrideType::SLI:
-			return sli_enabled(device);
 		case ParamOverrideType::HUNTING:
 			return (float)G->hunting;
 		case ParamOverrideType::FRAME_ANALYSIS:
@@ -3287,33 +2981,10 @@ float CommandListOperand::evaluate(CommandListState *state, HackerDevice *device
 
 bool CommandListOperand::static_evaluate(float *ret, HackerDevice *device)
 {
-	NvU8 stereo = false;
-
 	switch (type) {
 		case ParamOverrideType::VALUE:
 			*ret = val;
 			return true;
-		case ParamOverrideType::RAW_SEPARATION:
-		case ParamOverrideType::CONVERGENCE:
-		case ParamOverrideType::EYE_SEPARATION:
-		case ParamOverrideType::STEREO_ACTIVE:
-			NvAPIOverride();
-			Profiling::NvAPI_Stereo_IsEnabled(&stereo);
-			if (!stereo) {
-				*ret = 0.0;
-				return true;
-			}
-			break;
-		case ParamOverrideType::STEREO_AVAILABLE:
-			Profiling::NvAPI_Stereo_IsEnabled(&stereo);
-			*ret = stereo;
-			return true;
-		case ParamOverrideType::SLI:
-			if (device) {
-				*ret = sli_enabled(device);
-				return true;
-			}
-			break;
 		case ParamOverrideType::HUNTING:
 		case ParamOverrideType::FRAME_ANALYSIS:
 			if (G->hunting == HUNTING_MODE_DISABLED) {
@@ -4097,12 +3768,6 @@ static bool operand_allowed_in_context(ParamOverrideType type, CommandListScope 
 		case ParamOverrideType::RES_WIDTH:
 		case ParamOverrideType::RES_HEIGHT:
 		case ParamOverrideType::TIME:
-		case ParamOverrideType::RAW_SEPARATION:
-		case ParamOverrideType::CONVERGENCE:
-		case ParamOverrideType::EYE_SEPARATION:
-		case ParamOverrideType::STEREO_ACTIVE:
-		case ParamOverrideType::STEREO_AVAILABLE:
-		case ParamOverrideType::SLI:
 		case ParamOverrideType::HUNTING:
 		case ParamOverrideType::EFFECTIVE_DPI:
 			return true;
@@ -4416,7 +4081,6 @@ CustomResource::CustomResource() :
 	frame_no(0),
 	copies_this_frame(0),
 	override_type(CustomResourceType::INVALID),
-	override_mode(CustomResourceMode::DEFAULT),
 	override_bind_flags(CustomResourceBindFlags::INVALID),
 	override_misc_flags(ResourceMiscFlags::INVALID),
 	override_format((DXGI_FORMAT)-1),
@@ -4444,36 +4108,9 @@ CustomResource::~CustomResource()
 	free(initial_data);
 }
 
-bool CustomResource::OverrideSurfaceCreationMode(StereoHandle mStereoHandle, NVAPI_STEREO_SURFACECREATEMODE *orig_mode)
-{
-
-	if (override_mode == CustomResourceMode::DEFAULT)
-		return false;
-
-	Profiling::NvAPI_Stereo_GetSurfaceCreationMode(mStereoHandle, orig_mode);
-
-	switch (override_mode) {
-		case CustomResourceMode::STEREO:
-			Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle,
-					NVAPI_STEREO_SURFACECREATEMODE_FORCESTEREO);
-			return true;
-		case CustomResourceMode::MONO:
-			Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle,
-					NVAPI_STEREO_SURFACECREATEMODE_FORCEMONO);
-			return true;
-		case CustomResourceMode::AUTO:
-			Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle,
-					NVAPI_STEREO_SURFACECREATEMODE_AUTO);
-			return true;
-	}
-
-	return false;
-}
-
-void CustomResource::Substantiate(ID3D11Device *mOrigDevice1, StereoHandle mStereoHandle,
+void CustomResource::Substantiate(ID3D11Device *mOrigDevice1,
 		D3D11_BIND_FLAG bind_flags, D3D11_RESOURCE_MISC_FLAG misc_flags)
 {
-	NVAPI_STEREO_SURFACECREATEMODE orig_mode = NVAPI_STEREO_SURFACECREATEMODE_AUTO;
 	bool restore_create_mode = false;
 
 	// We only allow a custom resource to be substantiated once. Otherwise
@@ -4510,8 +4147,6 @@ void CustomResource::Substantiate(ID3D11Device *mOrigDevice1, StereoHandle mSter
 
 	LockResourceCreationMode();
 
-	restore_create_mode = OverrideSurfaceCreationMode(mStereoHandle, &orig_mode);
-
 	if (!filename.empty()) {
 		LoadFromFile(mOrigDevice1);
 	} else {
@@ -4533,9 +4168,6 @@ void CustomResource::Substantiate(ID3D11Device *mOrigDevice1, StereoHandle mSter
 				break;
 		}
 	}
-
-	if (restore_create_mode)
-		Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle, orig_mode);
 
 	UnlockResourceCreationMode();
 }
@@ -4951,10 +4583,7 @@ static ID3D11Resource * inter_device_resource_transfer(ID3D11Device *dst_dev, ID
 	// Not really anything sensible we can do with the resource creation
 	// mode in the general case here as yet - if we copy via the CPU we
 	// will lose the 2nd perspective, but we have no way to even know if
-	// one even exists. There are some limited situations we could copy a
-	// stereo texture between devices (reverse stereo blit -> stereo
-	// header), but let's wait until we have a proven need before we try
-	// anything heroic that probably won't work anyway. Tbh we might be
+	// one even exists. Tbh we might be
 	// better off just trying to avoid getting down this code path - maybe
 	// just discarding resources for re-substantiation and re-running
 	// Contants will be sufficient in most cases
@@ -5341,12 +4970,7 @@ bool ResourceCopyTarget::ParseTarget(const wchar_t *target,
 		return true;
 	}
 
-	// Alternate means to assign StereoParams and IniParams
-	if (is_source && !wcscmp(target, L"stereoparams")) {
-		type = ResourceCopyTargetType::STEREO_PARAMS;
-		return true;
-	}
-
+	// Alternate means to assign IniParams
 	if (is_source && !wcscmp(target, L"iniparams")) {
 		type = ResourceCopyTargetType::INI_PARAMS;
 		return true;
@@ -5476,8 +5100,7 @@ bool ParseCommandListResourceCopyDirective(const wchar_t *section,
 		else if (operation->src.type == operation->dst.type)
 			operation->options |= ResourceCopyOptions::REFERENCE;
 		else if (operation->dst.type == ResourceCopyTargetType::SHADER_RESOURCE
-				&& (operation->src.type == ResourceCopyTargetType::STEREO_PARAMS
-				|| operation->src.type == ResourceCopyTargetType::INI_PARAMS
+				&& (operation->src.type == ResourceCopyTargetType::INI_PARAMS
 				|| operation->src.type == ResourceCopyTargetType::CURSOR_MASK
 				|| operation->src.type == ResourceCopyTargetType::CURSOR_COLOR))
 			operation->options |= ResourceCopyOptions::REFERENCE;
@@ -5961,7 +5584,7 @@ ID3D11Resource *ResourceCopyTarget::GetResource(
 
 		if (dst)
 			bind_flags = dst->BindFlags(state, &misc_flags);
-		custom_resource->Substantiate(mOrigDevice1, mHackerDevice->mStereoHandle, bind_flags, misc_flags);
+		custom_resource->Substantiate(mOrigDevice1, bind_flags, misc_flags);
 
 		if (stride)
 			*stride = custom_resource->stride;
@@ -5986,14 +5609,6 @@ ID3D11Resource *ResourceCopyTarget::GetResource(
 		if (custom_resource->resource)
 			custom_resource->resource->AddRef();
 		return custom_resource->resource;
-
-	case ResourceCopyTargetType::STEREO_PARAMS:
-		if (mHackerDevice->mStereoResourceView)
-			mHackerDevice->mStereoResourceView->AddRef();
-		*view = mHackerDevice->mStereoResourceView;
-		if (mHackerDevice->mStereoTexture)
-			mHackerDevice->mStereoTexture->AddRef();
-		return mHackerDevice->mStereoTexture;
 
 	case ResourceCopyTargetType::INI_PARAMS:
 		if (mHackerDevice->mIniResourceView)
@@ -6288,7 +5903,6 @@ void ResourceCopyTarget::SetResource(
 		COMMAND_LIST_LOG(state, "  \"this\" target cannot be set outside of a checktextureoverride or indirect draw call context\n");
 		break;
 
-	case ResourceCopyTargetType::STEREO_PARAMS:
 	case ResourceCopyTargetType::INI_PARAMS:
 	case ResourceCopyTargetType::SWAP_CHAIN:
 	case ResourceCopyTargetType::FAKE_SWAP_CHAIN:
@@ -6346,7 +5960,6 @@ D3D11_BIND_FLAG ResourceCopyTarget::BindFlags(CommandListState *state, D3D11_RES
 			// Bind flags are unknown since this cannot be resolved
 			// until runtime:
 			return (D3D11_BIND_FLAG)0;
-		case ResourceCopyTargetType::STEREO_PARAMS:
 		case ResourceCopyTargetType::INI_PARAMS:
 		case ResourceCopyTargetType::SWAP_CHAIN:
 		case ResourceCopyTargetType::CPU:
@@ -6724,7 +6337,6 @@ static ResourceType* RecreateCompatibleTexture(
 		ResourcePool *resource_pool,
 		D3D11_BIND_FLAG bind_flags,
 		CommandListState *state,
-		StereoHandle mStereoHandle,
 		ResourceCopyOptions options)
 {
 	DescType new_desc;
@@ -6747,9 +6359,6 @@ static ResourceType* RecreateCompatibleTexture(
 	// helps with certain MSAA resources that may not be possible to create
 	// if we change the type to a R*X* format.
 	new_desc.Format = MakeTypeless(new_desc.Format);
-
-	if (options & ResourceCopyOptions::STEREO2MONO)
-		new_desc.Width *= 2;
 
 	// TODO: reverse_blit might need to imply resolve_msaa:
 	if (options & ResourceCopyOptions::RESOLVE_MSAA)
@@ -6779,14 +6388,12 @@ static void RecreateCompatibleResource(
 		ID3D11View *src_view,
 		ID3D11View **dst_view,
 		CommandListState *state,
-		StereoHandle mStereoHandle,
 		ResourceCopyOptions options,
 		UINT stride,
 		UINT offset,
 		DXGI_FORMAT format,
 		UINT *buf_dst_size)
 {
-	NVAPI_STEREO_SURFACECREATEMODE orig_mode = NVAPI_STEREO_SURFACECREATEMODE_AUTO;
 	D3D11_RESOURCE_DIMENSION src_dimension;
 	D3D11_BIND_FLAG bind_flags = (D3D11_BIND_FLAG)0;
 	D3D11_RESOURCE_MISC_FLAG misc_flags = (D3D11_RESOURCE_MISC_FLAG)0;
@@ -6798,26 +6405,6 @@ static void RecreateCompatibleResource(
 
 	LockResourceCreationMode();
 
-	if (options & ResourceCopyOptions::CREATEMODE_MASK) {
-		Profiling::NvAPI_Stereo_GetSurfaceCreationMode(mStereoHandle, &orig_mode);
-		restore_create_mode = true;
-
-		// STEREO2MONO will force the final destination to mono since
-		// it is in the CREATEMODE_MASK, but is not STEREO. It also
-		// creates an additional intermediate resource that will be
-		// forced to STEREO.
-
-		if (options & ResourceCopyOptions::STEREO) {
-			Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle,
-					NVAPI_STEREO_SURFACECREATEMODE_FORCESTEREO);
-		} else {
-			Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle,
-					NVAPI_STEREO_SURFACECREATEMODE_FORCEMONO);
-		}
-	} else if (dst && dst->type == ResourceCopyTargetType::CUSTOM_RESOURCE) {
-		restore_create_mode = dst->custom_resource->OverrideSurfaceCreationMode(mStereoHandle, &orig_mode);
-	}
-
 	src_resource->GetType(&src_dimension);
 	switch (src_dimension) {
 		case D3D11_RESOURCE_DIMENSION_BUFFER:
@@ -6827,22 +6414,19 @@ static void RecreateCompatibleResource(
 		case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
 			res = RecreateCompatibleTexture<ID3D11Texture1D, D3D11_TEXTURE1D_DESC, &ID3D11Device::CreateTexture1D>
 				(ini_line, dst, (ID3D11Texture1D*)src_resource, (ID3D11Texture1D*)*dst_resource, resource_pool,
-				 bind_flags, state, mStereoHandle, options);
+				 bind_flags, state, options);
 			break;
 		case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
 			res = RecreateCompatibleTexture<ID3D11Texture2D, D3D11_TEXTURE2D_DESC, &ID3D11Device::CreateTexture2D>
 				(ini_line, dst, (ID3D11Texture2D*)src_resource, (ID3D11Texture2D*)*dst_resource, resource_pool,
-				 bind_flags, state, mStereoHandle, options);
+				 bind_flags, state,options);
 			break;
 		case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
 			res = RecreateCompatibleTexture<ID3D11Texture3D, D3D11_TEXTURE3D_DESC, &ID3D11Device::CreateTexture3D>
 				(ini_line, dst, (ID3D11Texture3D*)src_resource, (ID3D11Texture3D*)*dst_resource, resource_pool,
-				 bind_flags, state, mStereoHandle, options);
+				 bind_flags, state, options);
 			break;
 	}
-
-	if (restore_create_mode)
-		Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle, orig_mode);
 
 	UnlockResourceCreationMode();
 
@@ -7390,8 +6974,7 @@ static void SetViewportFromResource(CommandListState *state, ID3D11Resource *res
 ResourceCopyOperation::ResourceCopyOperation() :
 	options(ResourceCopyOptions::INVALID),
 	cached_resource(NULL),
-	cached_view(NULL),
-	stereo2mono_intermediate(NULL)
+	cached_view(NULL)
 {}
 
 ResourceCopyOperation::~ResourceCopyOperation()
@@ -7457,76 +7040,6 @@ static void ResolveMSAA(ID3D11Resource *dst_resource, ID3D11Resource *src_resour
 			state->mOrigContext1->ResolveSubresource(dst, index, src, index, fmt);
 		}
 	}
-}
-
-static void ReverseStereoBlit(ID3D11Resource *dst_resource, ID3D11Resource *src_resource, CommandListState *state)
-{
-	NvAPI_Status nvret;
-	D3D11_RESOURCE_DIMENSION src_dimension;
-	ID3D11Texture2D *src;
-	D3D11_TEXTURE2D_DESC srcDesc;
-	UINT item, level, index, width, height;
-	D3D11_BOX srcBox;
-	int fallbackside, fallback = 0;
-
-	src_resource->GetType(&src_dimension);
-	if (src_dimension != D3D11_RESOURCE_DIMENSION_TEXTURE2D) {
-		// TODO: I think it should be possible to do this with all
-		// resource types (possibly including buffers from the
-		// discovery of the stereo parameters in the cb12 slot), but I
-		// need to test it and make sure it works first
-		LogInfo("Resource copy: Reverse stereo blit not supported on resource type %d\n", src_dimension);
-		return;
-	}
-
-	src = (ID3D11Texture2D*)src_resource;
-	src->GetDesc(&srcDesc);
-
-	// TODO: Resolve MSAA
-	// TODO: Use intermediate resource if copying from a texture with depth buffer bind flags
-
-	// If stereo is disabled the reverse stereo blit won't work and we
-	// would end up with the destination only updated on the left, which
-	// may lead to shaders reading stale or 0 data if they read from the
-	// right hand side. Use the fallback path to copy the source to both
-	// sides of the destination so that the right side will be up to date:
-	fallback = state->mHackerDevice->mParamTextureManager.mActive ? 0 : 1;
-
-	if (!fallback) {
-		nvret = Profiling::NvAPI_Stereo_ReverseStereoBlitControl(state->mHackerDevice->mStereoHandle, true);
-		if (nvret != NVAPI_OK) {
-			LogInfo("Resource copying failed to enable reverse stereo blit\n");
-			// Fallback path: Copy 2D resource to both sides of the 2x
-			// width destination
-			fallback = 1;
-		}
-	}
-
-	for (fallbackside = 0; fallbackside < 1 + fallback; fallbackside++) {
-
-		// Set the source box as per the nvapi documentation:
-		srcBox.left = 0;
-		srcBox.top = 0;
-		srcBox.front = 0;
-		srcBox.right = width = srcDesc.Width;
-		srcBox.bottom = height = srcDesc.Height;
-		srcBox.back = 1;
-
-		// Perform the reverse stereo blit on all sub-resources and mip-maps:
-		for (item = 0; item < srcDesc.ArraySize; item++) {
-			for (level = 0; level < srcDesc.MipLevels; level++) {
-				index = D3D11CalcSubresource(level, item, max(srcDesc.MipLevels, 1));
-				srcBox.right = width >> level;
-				srcBox.bottom = height >> level;
-				state->mOrigContext1->CopySubresourceRegion(dst_resource, index,
-						fallbackside * srcBox.right, 0, 0,
-						src, index, &srcBox);
-			}
-		}
-	}
-
-	if (!fallback)
-		Profiling::NvAPI_Stereo_ReverseStereoBlitControl(state->mHackerDevice->mStereoHandle, false);
 }
 
 static void SpecialCopyBufferRegion(ID3D11Resource *dst_resource,ID3D11Resource *src_resource,
@@ -7773,7 +7286,6 @@ static bool ViewMatchesResource(ID3D11View *view, ID3D11Resource *resource)
 static ResourceCopyTargetType EquivTarget(ResourceCopyTargetType type)
 {
 	switch(type) {
-		case ResourceCopyTargetType::STEREO_PARAMS:
 		case ResourceCopyTargetType::INI_PARAMS:
 		case ResourceCopyTargetType::CURSOR_MASK:
 		case ResourceCopyTargetType::CURSOR_COLOR:
@@ -7852,7 +7364,7 @@ void ResourceCopyOperation::run(CommandListState *state)
 	if (options & ResourceCopyOptions::COPY_MASK) {
 		RecreateCompatibleResource(&ini_line, &dst, src_resource,
 			pp_cached_resource, p_resource_pool, src_view, pp_cached_view,
-			state, mHackerDevice->mStereoHandle,
+			state,
 			options, stride, offset, format, &buf_dst_size);
 
 		if (!*pp_cached_resource) {
@@ -7867,33 +7379,6 @@ void ResourceCopyOperation::run(CommandListState *state)
 		if (options & ResourceCopyOptions::COPY_DESC) {
 			// RecreateCompatibleResource has already done the work
 			COMMAND_LIST_LOG(state, "  copying resource description\n");
-		} else if (options & ResourceCopyOptions::STEREO2MONO) {
-			COMMAND_LIST_LOG(state, "  performing reverse stereo blit\n");
-			Profiling::stereo2mono_copies++;
-
-			// TODO: Resolve MSAA to an intermediate resource first
-			// if necessary (but keep in mind this may have
-			// compatibility issues without a fallback path)
-
-			// The reverse stereo blit seems to only work if the
-			// destination resource is stereo. This is a bit
-			// bizzare since the whole point of it is to create a
-			// double width mono resource, but there you go.
-			// We use a second intermediate resource that is forced
-			// to stereo and the final destination is forced to
-			// mono - once we have done the reverse blit we use an
-			// ordinary copy to the final mono resource.
-
-			RecreateCompatibleResource(&(ini_line + L" (intermediate)"),
-				NULL, src_resource, &stereo2mono_intermediate,
-				p_resource_pool, NULL, NULL,
-				state, mHackerDevice->mStereoHandle,
-				(ResourceCopyOptions)(options | ResourceCopyOptions::STEREO),
-				stride, offset, format, NULL);
-
-			ReverseStereoBlit(stereo2mono_intermediate, src_resource, state);
-
-			mOrigContext1->CopyResource(dst_resource, stereo2mono_intermediate);
 		} else if (options & ResourceCopyOptions::RESOLVE_MSAA) {
 			COMMAND_LIST_LOG(state, "  resolving MSAA\n");
 			Profiling::msaa_resolutions++;

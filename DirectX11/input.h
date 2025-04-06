@@ -64,7 +64,7 @@ public:
 
 // -----------------------------------------------------------------------------
 // VKInputButton is the primary object used for game input from the users, for
-// changing separation/convergence/iniParams.
+// changing iniParams.
 //
 // The keybindings are oriented around the use of GetAsyncKeyState, and numerous
 // convenience aliases are defined in vkeys.h.

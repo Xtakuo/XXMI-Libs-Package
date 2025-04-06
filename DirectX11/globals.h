@@ -57,7 +57,6 @@ enum class MarkingAction {
 	REGEX      = 0x0000008,
 	DUMP_MASK  = 0x000000e, // HLSL, Assembly and/or ShaderRegex is selected
 	MONO_SS    = 0x0000010,
-	STEREO_SS  = 0x0000020,
 	SS_IF_PINK = 0x0000040,
 
 	DEFAULT    = 0x0000003,
@@ -71,7 +70,6 @@ static EnumName_t<const wchar_t *, MarkingAction> MarkingActionNames[] = {
 	{L"ShaderRegex", MarkingAction::REGEX},
 	{L"clipboard", MarkingAction::CLIPBOARD},
 	{L"mono_snapshot", MarkingAction::MONO_SS},
-	{L"stereo_snapshot", MarkingAction::STEREO_SS},
 	{L"snapshot_if_pink", MarkingAction::SS_IF_PINK},
 	{NULL, MarkingAction::INVALID} // End of list marker
 };
@@ -174,7 +172,6 @@ enum class FrameAnalysisOptions {
 	FILENAME_REG    = 0x00002000,
 	FILENAME_HANDLE = 0x00004000,
 	PERSIST         = 0x00008000, // Used by shader/texture triggers
-	STEREO          = 0x00010000,
 	MONO            = 0x00020000,
 	STEREO_MASK     = 0x00030000,
 	HOLD            = 0x00040000,
@@ -215,7 +212,6 @@ static EnumName_t<wchar_t *, FrameAnalysisOptions> FrameAnalysisOptionNames[] = 
 	// Misc options:
 	{L"clear_rt", FrameAnalysisOptions::CLEAR_RT},
 	{L"persist", FrameAnalysisOptions::PERSIST},
-	{L"stereo", FrameAnalysisOptions::STEREO},
 	{L"mono", FrameAnalysisOptions::MONO},
 	{L"filename_reg", FrameAnalysisOptions::FILENAME_REG},
 	{L"filename_handle", FrameAnalysisOptions::FILENAME_HANDLE},
@@ -258,7 +254,6 @@ static EnumName_t<const wchar_t *, DepthBufferFilter> DepthBufferFilterNames[] =
 struct ShaderOverride {
 	std::wstring first_ini_section;
 	DepthBufferFilter depth_filter;
-	UINT64 partner_hash;
 	char model[20]; // More than long enough for even ps_4_0_level_9_0
 	int allow_duplicate_hashes;
 	float filter_index, backup_filter_index;
@@ -268,7 +263,6 @@ struct ShaderOverride {
 
 	ShaderOverride() :
 		depth_filter(DepthBufferFilter::NONE),
-		partner_hash(0),
 		allow_duplicate_hashes(1),
 		filter_index(FLT_MAX),
 		backup_filter_index(FLT_MAX)
@@ -280,7 +274,6 @@ typedef std::unordered_map<UINT64, struct ShaderOverride> ShaderOverrideMap;
 
 struct TextureOverride {
 	std::wstring ini_section;
-	int stereoMode;
 	int format;
 	int width;
 	int height;
@@ -307,7 +300,6 @@ struct TextureOverride {
 	CommandList post_command_list;
 
 	TextureOverride() :
-		stereoMode(-1),
 		format(-1),
 		width(-1),
 		height(-1),
@@ -442,11 +434,6 @@ struct Globals
 
 	MarkingMode marking_mode;
 	MarkingAction marking_actions;
-	int gForceStereo;
-	bool gCreateStereoProfile;
-	int gSurfaceCreateMode;
-	int gSurfaceSquareCreateMode;
-	bool gForceNoNvAPI;
 
 	UINT hunting;
 	bool fix_enabled;
@@ -482,7 +469,6 @@ struct Globals
 
 	std::vector<DirectX::XMFLOAT4> iniParams;
 	int iniParamsReserved;
-	int StereoParamsReg;
 	int IniParamsReg;
 
 	ResolutionInfo mResolutionInfo;
@@ -684,11 +670,6 @@ struct Globals
 
 		marking_mode(MarkingMode::INVALID),
 		marking_actions(MarkingAction::INVALID),
-		gForceStereo(0),
-		gCreateStereoProfile(false),
-		gSurfaceCreateMode(-1),
-		gSurfaceSquareCreateMode(-1),
-		gForceNoNvAPI(false),
 		ZBufferHashToInject(0),
 		SCISSOR_DISABLE(0),
 

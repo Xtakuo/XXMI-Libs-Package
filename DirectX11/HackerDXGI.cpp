@@ -189,38 +189,6 @@ IDXGISwapChain1* HackerSwapChain::GetOrigSwapChain1()
 }
 
 
-// -----------------------------------------------------------------------------
-
-void HackerSwapChain::UpdateStereoParams()
-{
-	if (G->ENABLE_TUNE)
-	{
-		//device->mParamTextureManager.mSeparationModifier = gTuneValue;
-		mHackerDevice->mParamTextureManager.mTuneVariable1 = G->gTuneValue[0];
-		mHackerDevice->mParamTextureManager.mTuneVariable2 = G->gTuneValue[1];
-		mHackerDevice->mParamTextureManager.mTuneVariable3 = G->gTuneValue[2];
-		mHackerDevice->mParamTextureManager.mTuneVariable4 = G->gTuneValue[3];
-		int counter = 0;
-		if (counter-- < 0)
-		{
-			counter = 30;
-			mHackerDevice->mParamTextureManager.mForceUpdate = true;
-		}
-	}
-
-	// Update stereo parameter texture. It's possible to arrive here with no texture available though,
-	// so we need to check first.
-	if (mHackerDevice->mStereoTexture)
-	{
-		LogDebug("  updating stereo parameter texture.\n");
-		mHackerDevice->mParamTextureManager.UpdateStereoTexture(mHackerDevice, mHackerContext, mHackerDevice->mStereoTexture, false);
-	}
-	else
-	{
-		LogDebug("  stereo parameter texture missing.\n");
-	}
-}
-
 // Called at each DXGI::Present() to give us reliable time to execute user
 // input and hunting commands.
 
@@ -592,10 +560,6 @@ STDMETHODIMP HackerSwapChain::Present(THIS_
 		if (profiling)
 			Profiling::start(&profiling_state);
 
-		// Update the stereo params texture just after the present so that 
-		// shaders get the new values for the current frame:
-		UpdateStereoParams();
-
 		G->bb_is_upscaling_bb = !!G->SCREEN_UPSCALING && G->upscaling_command_list_using_explicit_bb_flip;
 
 		// Run the post present command list now, which can be used to restore
@@ -898,10 +862,6 @@ STDMETHODIMP HackerSwapChain::Present1(THIS_
 	if (!(PresentFlags & DXGI_PRESENT_TEST)) {
 		if (profiling)
 			Profiling::start(&profiling_state);
-
-		// Update the stereo params texture just after the present so that we
-		// get the new values for the current frame:
-		UpdateStereoParams();
 
 		G->bb_is_upscaling_bb = !!G->SCREEN_UPSCALING && G->upscaling_command_list_using_explicit_bb_flip;
 

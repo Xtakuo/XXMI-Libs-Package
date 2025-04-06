@@ -5,7 +5,6 @@
 #include <d3d11_1.h>
 #include <INITGUID.h>
 
-#include "nvstereo.h"
 #include "HackerContext.h"
 #include "HackerDXGI.h"
 
@@ -91,9 +90,7 @@ private:
 	void KeepOriginalShader(UINT64 hash, wchar_t *shaderType, ID3D11Shader *pShader,
 		const void *pShaderBytecode, SIZE_T BytecodeLength, ID3D11ClassLinkage *pClassLinkage);
 
-	HRESULT CreateStereoParamResources();
 	void CreatePinkHuntingResources();
-	HRESULT SetGlobalNVSurfaceCreationMode();
 
 	// Templates of nearly identical functions
 	template <class ID3D11Shader,
@@ -115,10 +112,6 @@ private:
 		wchar_t *shaderType);
 
 public:
-	StereoHandle mStereoHandle;
-	nv::stereo::ParamTextureManagerD3D11 mParamTextureManager;
-	ID3D11Texture2D *mStereoTexture;
-	ID3D11ShaderResourceView *mStereoResourceView;
 	ID3D11ShaderResourceView *mZBufferResourceView;
 	ID3D11Texture1D *mIniTexture;
 	ID3D11ShaderResourceView *mIniResourceView;

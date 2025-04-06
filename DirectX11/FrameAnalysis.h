@@ -59,15 +59,14 @@ struct FrameAnalysisDeferredDumpTex2DArgs {
 	Microsoft::WRL::ComPtr<ID3D11Texture2D> staging;
 
 	wstring filename;
-	bool stereo;
 	D3D11_TEXTURE2D_DESC orig_desc;
 	DXGI_FORMAT format;
 
 	FrameAnalysisDeferredDumpTex2DArgs(FrameAnalysisOptions analyse_options,
 			ID3D11Texture2D *staging, wchar_t *filename,
-			bool stereo, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format) :
+			D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format) :
 		analyse_options(analyse_options), staging(staging),
-		filename(filename), stereo(stereo), orig_desc(*orig_desc), format(format)
+		filename(filename), orig_desc(*orig_desc), format(format)
 	{}
 };
 
@@ -109,20 +108,19 @@ private:
 	ID3D11DeviceContext* GetDumpingContext();
 
 	void Dump2DResource(ID3D11Texture2D *resource, wchar_t *filename,
-			bool stereo, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format);
+			D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format);
 	bool DeferDump2DResource(ID3D11Texture2D *staging, wchar_t *filename,
-			bool stereo, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format);
+			D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format);
 	void Dump2DResourceImmediateCtx(ID3D11Texture2D *staging, wstring filename,
-			bool stereo, D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format);
+			D3D11_TEXTURE2D_DESC *orig_desc, DXGI_FORMAT format);
 
 	HRESULT ResolveMSAA(ID3D11Texture2D *src, D3D11_TEXTURE2D_DESC *srcDesc,
 			ID3D11Texture2D **resolved, DXGI_FORMAT format);
 	HRESULT StageResource(ID3D11Texture2D *src,
 			D3D11_TEXTURE2D_DESC *srcDesc, ID3D11Texture2D **dst, DXGI_FORMAT format);
 	HRESULT CreateStagingResource(ID3D11Texture2D **resource,
-		D3D11_TEXTURE2D_DESC desc, bool stereo, bool msaa, DXGI_FORMAT format);
+		D3D11_TEXTURE2D_DESC desc, bool msaa, DXGI_FORMAT format);
 
-	void DumpStereoResource(ID3D11Texture2D *resource, wchar_t *filename, DXGI_FORMAT format);
 	void DumpBufferTxt(wchar_t *filename, D3D11_MAPPED_SUBRESOURCE *map,
 			UINT size, char type, int idx, UINT stride, UINT offset);
 	void DumpVBTxt(wchar_t *filename, D3D11_MAPPED_SUBRESOURCE *map,
@@ -209,7 +207,6 @@ private:
 			FrameAnalysisOptions type_mask, wchar_t *type);
 	void FrameAnalysisAfterUnmap(ID3D11Resource *pResource);
 	void FrameAnalysisAfterUpdate(ID3D11Resource *pResource);
-	void update_stereo_dumping_mode();
 	void set_default_dump_formats(bool draw);
 
 	FrameAnalysisOptions analyse_options;

@@ -474,19 +474,6 @@ void HackerContext::ProcessShaderOverride(ShaderOverride *shaderOverride, bool i
 			// TODO: Add alternate filter type where the depth
 			// buffer state is passed as an input to the shader
 		}
-
-		// Deprecated: Partner filtering can already be achieved with
-		// the command list with far more flexibility than this allows
-		if (shaderOverride->partner_hash) {
-			if (isPixelShader) {
-				if (mCurrentVertexShader != shaderOverride->partner_hash)
-					use_orig = true;
-			}
-			else {
-				if (mCurrentPixelShader != shaderOverride->partner_hash)
-					use_orig = true;
-			}
-		}
 	}
 
 	RunCommandList(mHackerDevice, this, &shaderOverride->command_list, &data->call_info, false);
@@ -803,17 +790,6 @@ void HackerContext::BeforeDraw(DrawContext &data)
 					if (mCurrentIndexBuffer)
 						G->mSelectedPixelShader_IndexBuffer.insert(mCurrentIndexBuffer);
 				}
-				if (G->marking_mode == MarkingMode::MONO && mHackerDevice->mStereoHandle)
-				{
-					LogDebug("  setting separation=0 for hunting\n");
-
-					if (NVAPI_OK != Profiling::NvAPI_Stereo_GetSeparation(mHackerDevice->mStereoHandle, &data.oldSeparation))
-						LogDebug("    Stereo_GetSeparation failed.\n");
-
-					NvAPIOverride();
-					if (NVAPI_OK != Profiling::NvAPI_Stereo_SetSeparation(mHackerDevice->mStereoHandle, 0))
-						LogDebug("    Stereo_SetSeparation failed.\n");
-				}
 				else if (G->marking_mode == MarkingMode::SKIP)
 				{
 					data.call_info.skip = true;
@@ -901,12 +877,6 @@ void HackerContext::AfterDraw(DrawContext &data)
 		if (data.post_commands[i]) {
 			RunCommandList(mHackerDevice, this, data.post_commands[i], &data.call_info, true);
 		}
-	}
-
-	if (mHackerDevice->mStereoHandle && data.oldSeparation != FLT_MAX) {
-		NvAPIOverride();
-		if (NVAPI_OK != Profiling::NvAPI_Stereo_SetSeparation(mHackerDevice->mStereoHandle, data.oldSeparation))
-			LogDebug("    Stereo_SetSeparation failed.\n");
 	}
 
 	if (data.oldVertexShader) {
@@ -2566,18 +2536,11 @@ template <void (__stdcall ID3D11DeviceContext::*OrigSetShaderResources)(THIS_
 		UINT StartSlot,
 		UINT NumViews,
 		ID3D11ShaderResourceView *const *ppShaderResourceViews)>
-void HackerContext::BindStereoResources()
+void HackerContext::BindResources()
 {
 	if (!mHackerDevice) {
-		LogInfo("  error querying device. Can't set NVidia stereo parameter texture.\n");
+		LogInfo("  error querying device. Can't set INI parameters texture.\n");
 		return;
-	}
-
-	// Set NVidia stereo texture.
-	if (mHackerDevice->mStereoResourceView && G->StereoParamsReg >= 0) {
-		LogDebug("  adding NVidia stereo parameter texture to shader resources in slot %i.\n", G->StereoParamsReg);
-
-		(mOrigContext1->*OrigSetShaderResources)(G->StereoParamsReg, 1, &mHackerDevice->mStereoResourceView);
 	}
 
 	// Set constants from ini file if they exist
@@ -2601,12 +2564,12 @@ void HackerContext::Bind3DMigotoResources()
 	// Our new strategy is to bind them when the context is created, then
 	// make sure that they stay bound in the SetShaderResource() calls. We
 	// do this after the SetHackerDevice call because we need mHackerDevice
-	BindStereoResources<&ID3D11DeviceContext::VSSetShaderResources>();
-	BindStereoResources<&ID3D11DeviceContext::HSSetShaderResources>();
-	BindStereoResources<&ID3D11DeviceContext::DSSetShaderResources>();
-	BindStereoResources<&ID3D11DeviceContext::GSSetShaderResources>();
-	BindStereoResources<&ID3D11DeviceContext::PSSetShaderResources>();
-	BindStereoResources<&ID3D11DeviceContext::CSSetShaderResources>();
+	BindResources<&ID3D11DeviceContext::VSSetShaderResources>();
+	BindResources<&ID3D11DeviceContext::HSSetShaderResources>();
+	BindResources<&ID3D11DeviceContext::DSSetShaderResources>();
+	BindResources<&ID3D11DeviceContext::GSSetShaderResources>();
+	BindResources<&ID3D11DeviceContext::PSSetShaderResources>();
+	BindResources<&ID3D11DeviceContext::CSSetShaderResources>();
 }
 
 void HackerContext::InitIniParams()
@@ -2698,15 +2661,6 @@ void HackerContext::SetShaderResources(UINT StartSlot, UINT NumViews,
 
 	if (!mHackerDevice)
 		return;
-
-	if (mHackerDevice->mStereoResourceView && G->StereoParamsReg >= 0) {
-		if (NumViews > G->StereoParamsReg - StartSlot) {
-			LogDebug("  Game attempted to unbind StereoParams, pinning in slot %i\n", G->StereoParamsReg);
-			override_srvs = new ID3D11ShaderResourceView*[NumViews];
-			memcpy(override_srvs, ppShaderResourceViews, sizeof(ID3D11ShaderResourceView*) * NumViews);
-			override_srvs[G->StereoParamsReg - StartSlot] = mHackerDevice->mStereoResourceView;
-		}
-	}
 
 	if (mHackerDevice->mIniResourceView && G->IniParamsReg >= 0) {
 		if (NumViews > G->IniParamsReg - StartSlot) {

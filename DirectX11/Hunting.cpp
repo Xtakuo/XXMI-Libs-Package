@@ -12,7 +12,6 @@
 #include "util.h"
 #include "DecompileHLSL.h"
 #include "Input.h"
-#include "Override.h"
 #include "Globals.h"
 #include "IniHandler.h"
 #include "D3D_Shaders\stdafx.h"
@@ -309,93 +308,6 @@ static void SimpleScreenShot(HackerDevice *pDevice, HashType hash, char *shaderT
 	LogInfoW(L"  SimpleScreenShot on Mark: %s, result: %d\n", fullName, hr);
 }
 
-// Similar to above, but this version enables the reverse stereo blit in nvapi
-// to get the second back buffer and create a stereo 3D JPS:
-
-template <typename HashType>
-static void StereoScreenShot(HackerDevice *pDevice, HashType hash, char *shaderType)
-{
-	HackerSwapChain *mHackerSwapChain = pDevice->GetHackerSwapChain();
-	wchar_t fullName[MAX_PATH];
-	ID3D11Texture2D *backBuffer = NULL;
-	ID3D11Texture2D *stereoBackBuffer = NULL;
-	D3D11_TEXTURE2D_DESC desc;
-	D3D11_BOX srcBox;
-	UINT srcWidth;
-	HRESULT hr;
-	NvAPI_Status nvret;
-	int hash_len = sizeof(HashType) * 2;
-	NvU8 stereo = false;
-
-	NvAPIOverride();
-	Profiling::NvAPI_Stereo_IsEnabled(&stereo);
-	if (stereo)
-		Profiling::NvAPI_Stereo_IsActivated(pDevice->mStereoHandle, &stereo);
-
-	if (!stereo) {
-		LogInfo("marking_actions=stereo_snapshot: Stereo disabled, falling back to mono snapshot\n");
-		SimpleScreenShot(pDevice, hash, shaderType);
-		return;
-	}
-
-	if (!mHackerSwapChain) {
-		LogOverlay(LOG_DIRE, "marking_actions=stereo_snapshot: Unable to get back buffer\n");
-		return;
-	}
-
-	hr = mHackerSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
-	if (FAILED(hr))
-		return;
-
-	backBuffer->GetDesc(&desc);
-
-	// Intermediate resource should be 2x width to receive a stereo image:
-	srcWidth = desc.Width;
-	desc.Width = srcWidth * 2;
-
-	hr = pDevice->GetPassThroughOrigDevice1()->CreateTexture2D(&desc, NULL, &stereoBackBuffer);
-	if (FAILED(hr)) {
-		LogInfo("StereoScreenShot failed to create intermediate texture resource: 0x%x\n", hr);
-		goto out_release_bb;
-	}
-
-	nvret = Profiling::NvAPI_Stereo_ReverseStereoBlitControl(pDevice->mStereoHandle, true);
-	if (nvret != NVAPI_OK) {
-		LogInfo("StereoScreenShot failed to enable reverse stereo blit\n");
-		goto out_release_stereo_bb;
-	}
-
-	// Set the source box as per the nvapi documentation:
-	srcBox.left = 0;
-	srcBox.top = 0;
-	srcBox.front = 0;
-	srcBox.right = srcWidth;
-	srcBox.bottom = desc.Height;
-	srcBox.back = 1;
-
-	// NVAPI documentation hasn't been updated to indicate which is the
-	// correct function to use for the reverse stereo blit in DX11...
-	// Fortunately there was really only one possibility, which is:
-	pDevice->GetPassThroughOrigContext1()->CopySubresourceRegion(stereoBackBuffer, 0, 0, 0, 0, backBuffer, 0, &srcBox);
-
-	hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-	if (FAILED(hr))
-		LogInfo("*** Overlay call CoInitializeEx failed: %d\n", hr);
-
-	swprintf_s(fullName, MAX_PATH, L"%ls\\%0*llx-%S.jps", G->SHADER_PATH, hash_len, (UINT64)hash, shaderType);
-	hr = DirectX::SaveWICTextureToFile(pDevice->GetPassThroughOrigContext1(), stereoBackBuffer, GUID_ContainerFormatJpeg, fullName);
-
-	CoUninitialize();
-
-	LogInfoW(L"  StereoScreenShot on Mark: %s, result: %d\n", fullName, hr);
-
-	Profiling::NvAPI_Stereo_ReverseStereoBlitControl(pDevice->mStereoHandle, false);
-out_release_stereo_bb:
-	stereoBackBuffer->Release();
-out_release_bb:
-	backBuffer->Release();
-}
-
 template <typename HashType>
 static void MarkingScreenShots(HackerDevice *device, HashType hash, char *short_type)
 {
@@ -411,8 +323,6 @@ static void MarkingScreenShots(HackerDevice *device, HashType hash, char *short_
 	// picture.
 	if (G->marking_actions & MarkingAction::MONO_SS)
 		SimpleScreenShot(device, hash, short_type);
-	if (G->marking_actions & MarkingAction::STEREO_SS)
-		StereoScreenShot(device, hash, short_type);
 }
 
 
@@ -642,7 +552,7 @@ static bool RegenerateShader(wchar_t *shaderFixPath, wchar_t *fileName, const ch
 		LogInfo("    Reload source code loaded. Size = %d\n", srcDataSize);
 		LogInfo("    compiling replacement HLSL code with shader model %s\n", shaderModel);
 
-		// TODO: Add #defines for StereoParams and IniParams
+		// TODO: Add #defines for IniParams
 
 		ID3DBlob* pErrorMsgs = nullptr;
 		// Pass the real filename and use the standard include handler so that
@@ -1179,21 +1089,6 @@ static void CopyToFixes(UINT64 hash, HackerDevice *device)
 	{
 		LogOverlay(LOG_WARNING, "> FAILED to copy Marked shader to ShaderFixes\n");
 		BeepFailure();
-	}
-}
-
-static void TakeScreenShot(HackerDevice *wrapped, void *private_data)
-{
-	LogInfo("> capturing screenshot\n");
-
-	if (wrapped->mStereoHandle)
-	{
-		NvAPI_Status err;
-		err = NvAPI_Stereo_CapturePngImage(wrapped->mStereoHandle);
-		if (err != NVAPI_OK)
-		{
-			LogOverlay(LOG_WARNING, "> screenshot failed, error:%d\n", err);
-		}
 	}
 }
 
@@ -2004,11 +1899,6 @@ void ParseHuntingSection()
 	RegisterIniKeyBinding(L"Hunting", L"freeze_performance_monitor", FreezePerf, NULL, noRepeat, NULL);
 	Profiling::interval = (INT64)(GetIniFloat(L"Hunting", L"monitor_performance_interval", 1.0f, NULL) * 1000000);
 
-	// Taking a screenshot does not really belong in the hunting section,
-	// so we no longer make it depend on Hunting, but it still falls under
-	// the [Hunting] section for historical reasons:
-	RegisterIniKeyBinding(L"Hunting", L"take_screenshot", TakeScreenShot, NULL, noRepeat, NULL);
-
 	// Don't register hunting keys when hard disabled. In this case the
 	// only way to turn hunting on is to edit the ini file and reload it.
 	if (G->hunting == HUNTING_MODE_DISABLED) {
@@ -2036,15 +1926,6 @@ void ParseHuntingSection()
 			(MarkingActionNames, buf, NULL);
 	} else
 		G->marking_actions = MarkingAction::DEFAULT;
-
-	int mark_snapshot = GetIniInt(L"Hunting", L"mark_snapshot", 0, NULL);
-	if (mark_snapshot) {
-		LogOverlay(LOG_NOTICE, "Deprecation warning: \"mark_snapshot\" will be removed in the future. Use \"marking_actions\" instead.\n");
-		if (mark_snapshot == 1)
-			G->marking_actions |= MarkingAction::MONO_SS;
-		else
-			G->marking_actions |= MarkingAction::STEREO_SS;
-	}
 
 	RegisterIniKeyBinding(L"Hunting", L"next_pixelshader", NextPixelShader, NULL, repeat, NULL);
 	RegisterIniKeyBinding(L"Hunting", L"previous_pixelshader", PrevPixelShader, NULL, repeat, NULL);

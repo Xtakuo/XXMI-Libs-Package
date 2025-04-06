@@ -20,7 +20,6 @@ namespace Profiling {
 	Overhead stat_overhead;
 	Overhead shaderregex_overhead;
 	Overhead cursor_overhead;
-	Overhead nvapi_overhead;
 	wstring text;
 	wstring cto_warning;
 	INT64 interval;
@@ -37,7 +36,6 @@ namespace Profiling {
 	unsigned resource_full_copies;
 	unsigned resource_reference_copies;
 	unsigned inter_device_copies;
-	unsigned stereo2mono_copies;
 	unsigned msaa_resolutions;
 	unsigned buffer_region_copies;
 	unsigned views_cleared;
@@ -131,7 +129,6 @@ static void update_txt_summary(LARGE_INTEGER collection_duration, LARGE_INTEGER 
 	LARGE_INTEGER stat_overhead;
 	LARGE_INTEGER shaderregex_overhead;
 	LARGE_INTEGER cursor_overhead;
-	LARGE_INTEGER nvapi_overhead;
 	LARGE_INTEGER shader_hash_lookup_overhead;
 	LARGE_INTEGER shader_reload_lookup_overhead;
 	LARGE_INTEGER shader_original_lookup_overhead;
@@ -162,7 +159,6 @@ static void update_txt_summary(LARGE_INTEGER collection_duration, LARGE_INTEGER 
 	stat_overhead.QuadPart = Profiling::stat_overhead.cpu.QuadPart * 1000000 / freq.QuadPart;
 	shaderregex_overhead.QuadPart = Profiling::shaderregex_overhead.cpu.QuadPart * 1000000 / freq.QuadPart;
 	cursor_overhead.QuadPart = Profiling::cursor_overhead.cpu.QuadPart * 1000000 / freq.QuadPart;
-	nvapi_overhead.QuadPart = Profiling::nvapi_overhead.cpu.QuadPart * 1000000 / freq.QuadPart;
 
 	shader_hash_lookup_overhead.QuadPart = Profiling::shader_hash_lookup_overhead.cpu.QuadPart * 1000000 / freq.QuadPart;
 	shader_reload_lookup_overhead.QuadPart = Profiling::shader_reload_lookup_overhead.cpu.QuadPart * 1000000 / freq.QuadPart;
@@ -183,7 +179,6 @@ static void update_txt_summary(LARGE_INTEGER collection_duration, LARGE_INTEGER 
 			    L"  dump_usage overhead: %7.2fus/frame ~%ffps\n"
 			    L" ShaderRegex overhead: %7.2fus/frame ~%ffps\n"
 			    L"Mouse cursor overhead: %7.2fus/frame ~%ffps\n"
-			    L"       NvAPI overhead: %7.2fus/frame ~%ffps\n"
 			    ,
 			    (float)present_overhead.QuadPart / frames,
 			    60.0 * present_overhead.QuadPart / collection_duration.QuadPart,
@@ -210,10 +205,7 @@ static void update_txt_summary(LARGE_INTEGER collection_duration, LARGE_INTEGER 
 			    60.0 * shaderregex_overhead.QuadPart / collection_duration.QuadPart,
 
 			    (float)cursor_overhead.QuadPart / frames,
-			    60.0 * cursor_overhead.QuadPart / collection_duration.QuadPart,
-
-			    (float)nvapi_overhead.QuadPart / frames,
-			    60.0 * nvapi_overhead.QuadPart / collection_duration.QuadPart
+			    60.0 * cursor_overhead.QuadPart / collection_duration.QuadPart
 	);
 	Profiling::text += buf;
 
@@ -272,7 +264,6 @@ static void update_txt_summary(LARGE_INTEGER collection_duration, LARGE_INTEGER 
 			    L"             Full resource copies: %4u/frame (High cost)\n"
 			    L"     By-Reference resource copies: %4u/frame (Low cost)\n"
 			    L"     Inter-device resource copies: %4u/frame (Extremely high cost)\n"
-			    L"      stereo2mono resource copies: %4u/frame (Extremely high cost on SLI)\n"
 			    L"          MSAA resources resolved: %4u/frame (High cost)\n"
 			    L"             Region buffer copies: %4u/frame\n"
 			    L"                Resources cleared: %4u/frame (Cost saving in some circumstances, e.g. SLI)\n"
@@ -287,7 +278,6 @@ static void update_txt_summary(LARGE_INTEGER collection_duration, LARGE_INTEGER 
 			    Profiling::resource_full_copies / frames,
 			    Profiling::resource_reference_copies / frames,
 			    Profiling::inter_device_copies / frames,
-			    Profiling::stereo2mono_copies / frames,
 			    Profiling::msaa_resolutions / frames,
 			    Profiling::buffer_region_copies / frames,
 			    Profiling::views_cleared / frames,
@@ -452,7 +442,6 @@ void Profiling::clear()
 	stat_overhead.clear();
 	shaderregex_overhead.clear();
 	cursor_overhead.clear();
-	nvapi_overhead.clear();
 	freeze = false;
 
 	shader_hash_lookup_overhead.clear();
@@ -466,7 +455,6 @@ void Profiling::clear()
 	resource_full_copies = 0;
 	resource_reference_copies = 0;
 	inter_device_copies = 0;
-	stereo2mono_copies = 0;
 	msaa_resolutions = 0;
 	buffer_region_copies = 0;
 	views_cleared = 0;

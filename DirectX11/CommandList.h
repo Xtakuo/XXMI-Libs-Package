@@ -7,7 +7,6 @@
 #include <d3d11_1.h>
 #include <DirectXMath.h>
 #include <util.h>
-#include <nvapi.h>
 
 #include "DrawCallInfo.h"
 #include "ResourceHash.h"
@@ -413,18 +412,6 @@ static EnumName_t<const wchar_t *, CustomResourceType> CustomResourceTypeNames[]
 
 	{NULL, CustomResourceType::INVALID} // End of list marker
 };
-enum class CustomResourceMode {
-	DEFAULT,
-	AUTO,
-	STEREO,
-	MONO,
-};
-static EnumName_t<const wchar_t *, CustomResourceMode> CustomResourceModeNames[] = {
-	{L"auto", CustomResourceMode::AUTO},
-	{L"stereo", CustomResourceMode::STEREO},
-	{L"mono", CustomResourceMode::MONO},
-	{NULL, CustomResourceMode::DEFAULT} // End of list marker
-};
 
 // The bind flags are usually set automatically, but there are cases where
 // these can be used to influence driver heuristics (e.g. a buffer that
@@ -514,7 +501,6 @@ public:
 	// Used to override description when copying or synthesise resources
 	// from scratch:
 	CustomResourceType override_type;
-	CustomResourceMode override_mode;
 	CustomResourceBindFlags override_bind_flags;
 	ResourceMiscFlags override_misc_flags;
 	DXGI_FORMAT override_format;
@@ -537,8 +523,7 @@ public:
 	CustomResource();
 	~CustomResource();
 
-	void Substantiate(ID3D11Device *mOrigDevice, StereoHandle mStereoHandle, D3D11_BIND_FLAG bind_flags, D3D11_RESOURCE_MISC_FLAG misc_flags);
-	bool OverrideSurfaceCreationMode(StereoHandle mStereoHandle, NVAPI_STEREO_SURFACECREATEMODE *orig_mode);
+	void Substantiate(ID3D11Device *mOrigDevice, D3D11_BIND_FLAG bind_flags, D3D11_RESOURCE_MISC_FLAG misc_flags);
 	void OverrideBufferDesc(D3D11_BUFFER_DESC *desc);
 	void OverrideTexDesc(D3D11_TEXTURE1D_DESC *desc);
 	void OverrideTexDesc(D3D11_TEXTURE2D_DESC *desc);
@@ -574,7 +559,6 @@ enum class ResourceCopyTargetType {
 	DEPTH_STENCIL_TARGET,
 	UNORDERED_ACCESS_VIEW,
 	CUSTOM_RESOURCE,
-	STEREO_PARAMS,
 	INI_PARAMS,
 	CURSOR_MASK,
 	CURSOR_COLOR,
@@ -582,7 +566,7 @@ enum class ResourceCopyTargetType {
 	SWAP_CHAIN, // Meaning depends on whether or not upscaling has run yet this frame
 	REAL_SWAP_CHAIN, // need this for upscaling used with "r_bb"
 	FAKE_SWAP_CHAIN, // need this for upscaling used with "f_bb"
-	CPU, // For staging resources to the CPU, e.g. for auto-convergence
+	CPU, // For staging resources to the CPU
 };
 
 class ResourceCopyTarget {
@@ -629,9 +613,7 @@ enum class ResourceCopyOptions {
 	REFERENCE       = 0x00000002,
 	UNLESS_NULL     = 0x00000004,
 	RESOLVE_MSAA    = 0x00000008,
-	STEREO          = 0x00000010,
 	MONO            = 0x00000020,
-	STEREO2MONO     = 0x00000040,
 	COPY_DESC       = 0x00000080,
 	SET_VIEWPORT    = 0x00000100,
 	NO_VIEW_CACHE   = 0x00000200,
@@ -639,7 +621,6 @@ enum class ResourceCopyOptions {
 
 	COPY_MASK       = 0x000000c9, // Anything that implies a copy
 	COPY_TYPE_MASK  = 0x000000cb, // Anything that implies a copy or a reference
-	CREATEMODE_MASK = 0x00000070,
 };
 SENSIBLE_ENUM(ResourceCopyOptions);
 static EnumName_t<wchar_t *, ResourceCopyOptions> ResourceCopyOptionNames[] = {
@@ -649,9 +630,7 @@ static EnumName_t<wchar_t *, ResourceCopyOptions> ResourceCopyOptionNames[] = {
 	{L"copy_desc", ResourceCopyOptions::COPY_DESC},
 	{L"copy_description", ResourceCopyOptions::COPY_DESC},
 	{L"unless_null", ResourceCopyOptions::UNLESS_NULL},
-	{L"stereo", ResourceCopyOptions::STEREO},
 	{L"mono", ResourceCopyOptions::MONO},
-	{L"stereo2mono", ResourceCopyOptions::STEREO2MONO},
 	{L"set_viewport", ResourceCopyOptions::SET_VIEWPORT},
 	{L"no_view_cache", ResourceCopyOptions::NO_VIEW_CACHE},
 	{L"raw", ResourceCopyOptions::RAW_VIEW},
@@ -689,11 +668,6 @@ public:
 	ID3D11Resource *cached_resource;
 	ResourcePool resource_pool;
 	ID3D11View *cached_view;
-
-	// Additional intermediate resources required for certain operations
-	// (TODO: add alternate cache in CustomResource to cut down on extra
-	// copies when copying to a single resource from many sources)
-	ID3D11Resource *stereo2mono_intermediate;
 
 	ResourceCopyOperation();
 	~ResourceCopyOperation();
@@ -891,22 +865,6 @@ enum class ParamOverrideType {
 	SCISSOR_TOP,    // specified, which is parsed in code, or not -
 	SCISSOR_RIGHT,  // in which case it will match the keyword list
 	SCISSOR_BOTTOM,
-	RAW_SEPARATION, // These get the values as they are right now -
-	EYE_SEPARATION, // StereoParams is only updated at the start of each
-	CONVERGENCE,    // frame. Intended for use if the convergence may have
-	STEREO_ACTIVE,	// been changed during the frame (e.g. if staged from
-	STEREO_AVAILABLE,// the GPU and it is unknown whether the operation has
-			// completed). Comparing these immediately before and
-			// after present can be useful to determine if the user
-			// is currently adjusting them, which is used for the
-			// auto-convergence in Life is Strange: Before the
-			// Storm to convert user convergence adjustments into
-			// equivalent popout adjustments. stereo_active is used
-			// for auto-convergence to remember if stereo was
-			// enabled last frame, since it cannot note this itself
-			// because if stereo was disabled it would not have run
-			// in both eyes to be able to update its state buffer.
-	SLI,
 	HUNTING,
 	FRAME_ANALYSIS,
 	EFFECTIVE_DPI, // For calculating UI scaling factor on 4K+. Note not the same thing as raw DPI.
@@ -943,13 +901,6 @@ static EnumName_t<const wchar_t *, ParamOverrideType> ParamOverrideTypeNames[] =
 	{L"scissor_top", ParamOverrideType::SCISSOR_TOP},
 	{L"scissor_right", ParamOverrideType::SCISSOR_RIGHT},
 	{L"scissor_bottom", ParamOverrideType::SCISSOR_BOTTOM},
-	{L"separation", ParamOverrideType::RAW_SEPARATION},
-	{L"raw_separation", ParamOverrideType::RAW_SEPARATION},
-	{L"eye_separation", ParamOverrideType::EYE_SEPARATION},
-	{L"convergence", ParamOverrideType::CONVERGENCE},
-	{L"stereo_active", ParamOverrideType::STEREO_ACTIVE},
-	{L"stereo_available", ParamOverrideType::STEREO_AVAILABLE},
-	{L"sli", ParamOverrideType::SLI},
 	{L"hunting", ParamOverrideType::HUNTING},
 	{L"frame_analysis", ParamOverrideType::FRAME_ANALYSIS},
 	{L"effective_dpi", ParamOverrideType::EFFECTIVE_DPI},
@@ -1184,58 +1135,6 @@ public:
 	{}
 
 	void run(CommandListState*) override;
-};
-
-class PerDrawStereoOverrideCommand : public CommandListCommand {
-public:
-	CommandListExpression expression;
-	float val;
-	float saved;
-	bool restore_on_post;
-	bool did_set_value_on_pre;
-	bool staging_type;
-	ResourceStagingOperation staging_op;
-
-	PerDrawStereoOverrideCommand(bool restore_on_post);
-
-	void run(CommandListState*) override;
-	bool optimise(HackerDevice *device) override;
-	bool noop(bool post, bool ignore_cto_pre, bool ignore_cto_post) override;
-	bool update_val(CommandListState *state);
-
-	virtual const char* stereo_param_name() = 0;
-	virtual float get_stereo_value(CommandListState*) = 0;
-	virtual void set_stereo_value(CommandListState*, float val) = 0;
-};
-class PerDrawSeparationOverrideCommand : public PerDrawStereoOverrideCommand
-{
-public:
-	PerDrawSeparationOverrideCommand(bool restore_on_post) :
-		PerDrawStereoOverrideCommand(restore_on_post)
-	{}
-
-	const char* stereo_param_name() override { return "separation"; }
-	float get_stereo_value(CommandListState*) override;
-	void set_stereo_value(CommandListState*, float val) override;
-};
-class PerDrawConvergenceOverrideCommand : public PerDrawStereoOverrideCommand
-{
-public:
-	PerDrawConvergenceOverrideCommand(bool restore_on_post) :
-		PerDrawStereoOverrideCommand(restore_on_post)
-	{}
-
-	const char* stereo_param_name() override { return "convergence"; }
-	float get_stereo_value(CommandListState*) override;
-	void set_stereo_value(CommandListState*, float val) override;
-};
-
-class DirectModeSetActiveEyeCommand : public CommandListCommand {
-public:
-	NV_STEREO_ACTIVE_EYE eye;
-
-	void run(CommandListState*) override;
-	bool noop(bool post, bool ignore_cto_pre, bool ignore_cto_post) override;
 };
 
 class FrameAnalysisChangeOptionsCommand : public CommandListCommand {

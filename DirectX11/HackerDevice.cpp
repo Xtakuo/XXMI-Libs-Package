@@ -19,7 +19,6 @@
 #include <D3Dcompiler.h>
 #include <codecvt>
 
-#include "nvapi.h"
 #include "log.h"
 #include "util.h"
 #include "shader.h"
@@ -241,7 +240,6 @@ static void unregister_hacker_device(HackerDevice *hacker_device)
 // -----------------------------------------------------------------------------------------------
 
 HackerDevice::HackerDevice(ID3D11Device1 *pDevice1, ID3D11DeviceContext1 *pContext1) : 
-	mStereoHandle(0), mStereoResourceView(0), mStereoTexture(0),
 	mIniResourceView(0), mIniTexture(0),
 	mZBufferResourceView(0)
 {
@@ -250,71 +248,6 @@ HackerDevice::HackerDevice(ID3D11Device1 *pDevice1, ID3D11DeviceContext1 *pConte
 	mOrigContext1 = pContext1;
 	// Must be done after mOrigDevice1 is set:
 	mUnknown = register_hacker_device(this);
-}
-
-HRESULT HackerDevice::CreateStereoParamResources()
-{
-	HRESULT hr;
-	NvAPI_Status nvret;
-
-	// We use the original device here. Functionally it should not matter
-	// if we use the HackerDevice, but it does result in a lot of noise in
-	// the frame analysis log as every call into nvapi using the
-	// mStereoHandle calls Begin() and End() on the immediate context.
-
-	// Todo: This call will fail if stereo is disabled. Proper notification?
-	nvret = NvAPI_Stereo_CreateHandleFromIUnknown(mOrigDevice1, &mStereoHandle);
-	if (nvret != NVAPI_OK)
-	{
-		mStereoHandle = 0;
-		LogInfo("HackerDevice::CreateStereoParamResources NvAPI_Stereo_CreateHandleFromIUnknown failed: %d\n", nvret);
-		return nvret;
-	}
-	mParamTextureManager.mStereoHandle = mStereoHandle;
-	LogInfo("  created NVAPI stereo handle. Handle = %p\n", mStereoHandle);
-
-	// Create stereo parameter texture.
-	LogInfo("  creating stereo parameter texture.\n");
-
-	D3D11_TEXTURE2D_DESC desc;
-	memset(&desc, 0, sizeof(D3D11_TEXTURE2D_DESC));
-	desc.Width = nv::stereo::ParamTextureManagerD3D11::Parms::StereoTexWidth;
-	desc.Height = nv::stereo::ParamTextureManagerD3D11::Parms::StereoTexHeight;
-	desc.MipLevels = 1;
-	desc.ArraySize = 1;
-	desc.Format = nv::stereo::ParamTextureManagerD3D11::Parms::StereoTexFormat;
-	desc.SampleDesc.Count = 1;
-	desc.SampleDesc.Quality = 0;
-	desc.Usage = D3D11_USAGE_DEFAULT;
-	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	desc.CPUAccessFlags = 0;
-	desc.MiscFlags = 0;
-	hr = mOrigDevice1->CreateTexture2D(&desc, 0, &mStereoTexture);
-	if (FAILED(hr))
-	{
-		LogInfo("    call failed with result = %x.\n", hr);
-		return hr;
-	}
-	LogInfo("    stereo texture created, handle = %p\n", mStereoTexture);
-
-	// Since we need to bind the texture to a shader input, we also need a resource view.
-	LogInfo("  creating stereo parameter resource view.\n");
-
-	D3D11_SHADER_RESOURCE_VIEW_DESC descRV;
-	memset(&descRV, 0, sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
-	descRV.Format = desc.Format;
-	descRV.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-	descRV.Texture2D.MostDetailedMip = 0;
-	descRV.Texture2D.MipLevels = -1;
-	hr = mOrigDevice1->CreateShaderResourceView(mStereoTexture, &descRV, &mStereoResourceView);
-	if (FAILED(hr))
-	{
-		LogInfo("    call failed with result = %x.\n", hr);
-		return hr;
-	}
-
-	LogInfo("    stereo texture resource view created, handle = %p.\n", mStereoResourceView);
-	return S_OK;
 }
 
 HRESULT HackerDevice::CreateIniParamResources()
@@ -417,27 +350,6 @@ void HackerDevice::CreatePinkHuntingResources()
 	}
 }
 
-HRESULT HackerDevice::SetGlobalNVSurfaceCreationMode()
-{
-	HRESULT hr;
-
-	// Override custom settings.
-	if (mStereoHandle && G->gSurfaceCreateMode >= 0)
-	{
-		NvAPIOverride();
-		LogInfo("  setting custom surface creation mode.\n");
-
-		hr = Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle,	(NVAPI_STEREO_SURFACECREATEMODE)G->gSurfaceCreateMode);
-		if (hr != NVAPI_OK)
-		{
-			LogInfo("    custom surface creation call failed: %d.\n", hr);
-			return hr;
-		}
-	}
-
-	return S_OK;
-}
-
 
 // With the addition of full DXGI support, this init sequence is too dangerous
 // to do at object creation time.  The NV CreateHandleFromIUnknown calls back
@@ -448,17 +360,11 @@ void HackerDevice::Create3DMigotoResources()
 	LogInfo("HackerDevice::Create3DMigotoResources(%s@%p) called.\n", type_name(this), this);
 
 	// XXX: Ignoring the return values for now because so do our callers.
-	// If we want to change this, keep in mind that failures in
-	// CreateStereoParamResources and SetGlobalNVSurfaceCreationMode should
-	// be considdered non-fatal, as stereo could be disabled in the control
-	// panel, or we could be on an AMD or Intel card.
 
 	LockResourceCreationMode();
 
-	CreateStereoParamResources();
 	CreateIniParamResources();
 	CreatePinkHuntingResources();
-	SetGlobalNVSurfaceCreationMode();
 
 	UnlockResourceCreationMode();
 
@@ -1415,9 +1321,6 @@ bool HackerDevice::NeedOriginalShader(UINT64 hash)
 		return true;
 	}
 
-	if (shaderOverride->partner_hash)
-		return true;
-
 	return false;
 }
 
@@ -1540,24 +1443,6 @@ STDMETHODIMP_(ULONG) HackerDevice::Release(THIS)
 
 		unregister_hacker_device(this);
 
-		if (mStereoHandle)
-		{
-			int result = NvAPI_Stereo_DestroyHandle(mStereoHandle);
-			mStereoHandle = 0;
-			LogInfo("  releasing NVAPI stereo handle, result = %d\n", result);
-		}
-		if (mStereoResourceView)
-		{
-			long result = mStereoResourceView->Release();
-			mStereoResourceView = 0;
-			LogInfo("  releasing stereo parameters resource view, result = %d\n", result);
-		}
-		if (mStereoTexture)
-		{
-			long result = mStereoTexture->Release();
-			mStereoTexture = 0;
-			LogInfo("  releasing stereo texture, result = %d\n", result);
-		}
 		if (mIniResourceView)
 		{
 			long result = mIniResourceView->Release();
@@ -1981,19 +1866,6 @@ static bool check_texture_override_iteration(TextureOverride *textureOverride)
 	return false;
 }
 
-// Only Texture2D surfaces can be square. Use template specialisation to skip
-// the check on other resource types:
-template <typename DescType>
-static bool is_square_surface(DescType *desc) {
-	return false;
-}
-static bool is_square_surface(D3D11_TEXTURE2D_DESC *desc)
-{
-	return (desc && G->gSurfaceSquareCreateMode >= 0
-			&& desc->Width == desc->Height
-			&& (desc->Usage & D3D11_USAGE_IMMUTABLE) == 0);
-}
-
 // Template specialisations to override resource descriptions.
 // TODO: Refactor this to use common code with CustomResource.
 // TODO: Add overrides for BindFlags since they can affect the stereo mode.
@@ -2051,25 +1923,13 @@ static void override_resource_desc(D3D11_TEXTURE3D_DESC *desc, TextureOverride *
 
 template <typename DescType>
 static const DescType* process_texture_override(uint32_t hash,
-		StereoHandle mStereoHandle,
 		const DescType *origDesc,
-		DescType *newDesc,
-		NVAPI_STEREO_SURFACECREATEMODE *oldMode)
+		DescType *newDesc)
 {
-	NVAPI_STEREO_SURFACECREATEMODE newMode = (NVAPI_STEREO_SURFACECREATEMODE) -1;
 	TextureOverrideMatches matches;
 	TextureOverride *textureOverride = NULL;
 	const DescType* ret = origDesc;
 	unsigned i;
-
-	*oldMode = (NVAPI_STEREO_SURFACECREATEMODE) -1;
-
-	// Check for square surfaces. We used to do this after processing the
-	// StereoMode in TextureOverrides, but realistically we always want the
-	// TextureOverrides to be able to override this since they are more
-	// specific, so now we do this first.
-	if (is_square_surface(origDesc))
-		newMode = (NVAPI_STEREO_SURFACECREATEMODE) G->gSurfaceSquareCreateMode;
 
 	find_texture_overrides(hash, origDesc, &matches, NULL);
 
@@ -2098,35 +1958,11 @@ static const DescType* process_texture_override(uint32_t hash,
 			if (!check_texture_override_iteration(textureOverride))
 				continue;
 
-			if (textureOverride->stereoMode != -1)
-				newMode = (NVAPI_STEREO_SURFACECREATEMODE) textureOverride->stereoMode;
-
 			override_resource_desc(newDesc, textureOverride);
 		}
 	}
 
-	LockResourceCreationMode();
-
-	if (newMode != (NVAPI_STEREO_SURFACECREATEMODE) -1) {
-		Profiling::NvAPI_Stereo_GetSurfaceCreationMode(mStereoHandle, oldMode);
-		NvAPIOverride();
-		LogInfo("    setting custom surface creation mode %d\n", newMode);
-
-		if (NVAPI_OK != Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle, newMode))
-			LogInfo("      call failed.\n");
-	}
-
 	return ret;
-}
-
-static void restore_old_surface_create_mode(NVAPI_STEREO_SURFACECREATEMODE oldMode, StereoHandle mStereoHandle)
-{
-	if (oldMode != (NVAPI_STEREO_SURFACECREATEMODE) - 1) {
-		if (NVAPI_OK != Profiling::NvAPI_Stereo_SetSurfaceCreationMode(mStereoHandle, oldMode))
-			LogInfo("    restore call failed.\n");
-	}
-
-	UnlockResourceCreationMode();
 }
 
 STDMETHODIMP HackerDevice::CreateBuffer(THIS_
@@ -2139,7 +1975,6 @@ STDMETHODIMP HackerDevice::CreateBuffer(THIS_
 {
 	D3D11_BUFFER_DESC newDesc;
 	const D3D11_BUFFER_DESC *pNewDesc = NULL;
-	NVAPI_STEREO_SURFACECREATEMODE oldMode;
 
 	LogDebug("HackerDevice::CreateBuffer called\n");
 	if (pDesc)
@@ -2154,10 +1989,10 @@ STDMETHODIMP HackerDevice::CreateBuffer(THIS_
 		hash = crc32c_hw(hash, pDesc, sizeof(D3D11_BUFFER_DESC));
 
 	// Override custom settings?
-	pNewDesc = process_texture_override(hash, mStereoHandle, pDesc, &newDesc, &oldMode);
+	pNewDesc = process_texture_override(hash, pDesc, &newDesc);
 
 	HRESULT hr = mOrigDevice1->CreateBuffer(pNewDesc, pInitialData, ppBuffer);
-	restore_old_surface_create_mode(oldMode, mStereoHandle);
+
 	if (hr == S_OK && ppBuffer && *ppBuffer)
 	{
 		EnterCriticalSectionPretty(&G->mResourcesLock);
@@ -2195,7 +2030,6 @@ STDMETHODIMP HackerDevice::CreateTexture1D(THIS_
 {
 	D3D11_TEXTURE1D_DESC newDesc;
 	const D3D11_TEXTURE1D_DESC *pNewDesc = NULL;
-	NVAPI_STEREO_SURFACECREATEMODE oldMode;
 	uint32_t data_hash, hash;
 
 	LogDebug("HackerDevice::CreateTexture1D called\n");
@@ -2208,11 +2042,9 @@ STDMETHODIMP HackerDevice::CreateTexture1D(THIS_
 	LogDebug("  InitialData = %p, hash = %08lx\n", pInitialData, hash);
 
 	// Override custom settings?
-	pNewDesc = process_texture_override(hash, mStereoHandle, pDesc, &newDesc, &oldMode);
+	pNewDesc = process_texture_override(hash, pDesc, &newDesc);
 
 	HRESULT hr = mOrigDevice1->CreateTexture1D(pNewDesc, pInitialData, ppTexture1D);
-
-	restore_old_surface_create_mode(oldMode, mStereoHandle);
 
 	if (hr == S_OK && ppTexture1D && *ppTexture1D)
 	{
@@ -2269,7 +2101,6 @@ STDMETHODIMP HackerDevice::CreateTexture2D(THIS_
 {
 	D3D11_TEXTURE2D_DESC newDesc;
 	const D3D11_TEXTURE2D_DESC *pNewDesc = NULL;
-	NVAPI_STEREO_SURFACECREATEMODE oldMode;
 
 	LogDebug("HackerDevice::CreateTexture2D called with parameters\n");
 	if (pDesc)
@@ -2321,11 +2152,10 @@ STDMETHODIMP HackerDevice::CreateTexture2D(THIS_
 	LogDebug("  InitialData = %p, hash = %08lx\n", pInitialData, hash);
 
 	// Override custom settings?
-	pNewDesc = process_texture_override(hash, mStereoHandle, pDesc, &newDesc, &oldMode);
+	pNewDesc = process_texture_override(hash, pDesc, &newDesc);
 
 	// Actual creation:
 	HRESULT hr = mOrigDevice1->CreateTexture2D(pNewDesc, pInitialData, ppTexture2D);
-	restore_old_surface_create_mode(oldMode, mStereoHandle);
 	if (ppTexture2D) LogDebug("  returns result = %x, handle = %p\n", hr, *ppTexture2D);
 
 	// Register texture. Every one seen.
@@ -2362,7 +2192,6 @@ STDMETHODIMP HackerDevice::CreateTexture3D(THIS_
 {
 	D3D11_TEXTURE3D_DESC newDesc;
 	const D3D11_TEXTURE3D_DESC *pNewDesc = NULL;
-	NVAPI_STEREO_SURFACECREATEMODE oldMode;
 
 	LogInfo("HackerDevice::CreateTexture3D called with parameters\n");
 	if (pDesc)
@@ -2392,11 +2221,9 @@ STDMETHODIMP HackerDevice::CreateTexture3D(THIS_
 	LogInfo("  InitialData = %p, hash = %08lx\n", pInitialData, hash);
 
 	// Override custom settings?
-	pNewDesc = process_texture_override(hash, mStereoHandle, pDesc, &newDesc, &oldMode);
+	pNewDesc = process_texture_override(hash, pDesc, &newDesc);
 
 	HRESULT hr = mOrigDevice1->CreateTexture3D(pNewDesc, pInitialData, ppTexture3D);
-
-	restore_old_surface_create_mode(oldMode, mStereoHandle);
 
 	// Register texture.
 	if (hr == S_OK && ppTexture3D)

@@ -14,7 +14,6 @@
 #include "Globals.h"
 #include "Override.h"
 #include "Hunting.h"
-#include "nvprofile.h"
 #include "ShaderRegex.h"
 #include "cursor.h"
 #include <chrono>
@@ -41,19 +40,19 @@ struct Section {
 	bool prefix;
 };
 static Section CommandListSections[] = {
-	{L"ShaderOverride", true},
-	{L"ShaderRegex", true},
 	{L"TextureOverride", true},
-	{L"CustomShader", true},
 	{L"CommandList", true},
-	{L"BuiltInCustomShader", true},
-	{L"BuiltInCommandList", true},
+	{L"Constants", false},
 	{L"Present", false},
+	{L"ShaderOverride", true},
+	{L"CustomShader", true},
+	{L"ShaderRegex", true},
+	{L"BuiltInCommandList", true},
+	{L"BuiltInCustomShader", true},
 	{L"ClearRenderTargetView", false},
 	{L"ClearDepthStencilView", false},
 	{L"ClearUnorderedAccessViewUint", false},
 	{L"ClearUnorderedAccessViewFloat", false},
-	{L"Constants", false},
 };
 
 // List all remaining sections so we can verify that every section listed in
@@ -62,27 +61,27 @@ static Section CommandListSections[] = {
 // list a section in both lists - put it above if it is a command list section,
 // and in this list if it is not:
 static Section RegularSections[] = {
+	{L"Resource", true},
+	{L"Key", true},
+	{L"Include", true}, // Prefix so that it may be namespaced to allow included files to include more files with relative paths
+	{L"Preset", true},
+	{L"Hunting", false},
 	{L"Logging", false},
 	{L"System", false},
 	{L"Device", false},
-	{L"Stereo", false},
 	{L"Rendering", false},
-	{L"Hunting", false},
-	{L"Profile", false},
-	{L"ConvergenceMap", false}, // Only used in nvapi wrapper
-	{L"Resource", true},
-	{L"Key", true},
-	{L"Preset", true},
-	{L"Include", true}, // Prefix so that it may be namespaced to allow included files to include more files with relative paths
 	{L"Loader", false},
+	{L"Profile", false},
+	{L"Stereo", false},
+	{L"ConvergenceMap", false},
 };
 
 // List of sections that will not trigger a warning if they contain a line
 // without an equals sign. All command lists are also permitted this privilege
 // to allow for cleaner flow control syntax (if/else/endif)
 static Section AllowLinesWithoutEquals[] = {
-	{L"Profile", false},
 	{L"ShaderRegex", true},
+	{L"Profile", false},
 };
 
 static bool whitelisted_duplicate_key(const wchar_t *section, const wchar_t *key)
@@ -1834,7 +1833,6 @@ static void ParseResourceSections()
 		}
 
 		custom_resource->override_type = GetIniEnumClass(i->first.c_str(), L"type", CustomResourceType::INVALID, NULL, CustomResourceTypeNames);
-		custom_resource->override_mode = GetIniEnumClass(i->first.c_str(), L"mode", CustomResourceMode::DEFAULT, NULL, CustomResourceModeNames);
 
 		if (GetIniString(i->first.c_str(), L"format", 0, setting, MAX_PATH)) {
 			custom_resource->override_format = ParseFormatString(setting, true);
@@ -2045,25 +2043,6 @@ static void ParseCommandList(const wchar_t *id,
 		post_command_list->scope = NULL;
 }
 
-static void ParseDriverProfile()
-{
-	IniSectionVector *section = NULL;
-	IniSectionVector::iterator entry;
-	wstring *lhs, *rhs;
-
-	// Arguably we should only parse this section the first time since the
-	// settings will only be applied on startup.
-	profile_settings.clear();
-
-	GetIniSection(&section, L"Profile");
-	for (entry = section->begin(); entry < section->end(); entry++) {
-		lhs = &entry->first;
-		rhs = &entry->second;
-
-		parse_ini_profile_line(lhs, rhs);
-	}
-}
-
 static void ParseConstantsSection()
 {
 	VariableFlags flags;
@@ -2224,28 +2203,6 @@ static void check_shaderoverride_duplicates(bool duplicate, const wchar_t *id, S
 
 static void warn_deprecated_shaderoverride_options(const wchar_t *id, ShaderOverride *override)
 {
-	// I've seen several shaderhackers attempt to use the deprecated
-	// partner= in a way that won't work recently. Detect, warn and
-	// suggest an alternative. TODO: Add a way to check ps/vs/etc hashes
-	// directly to simplify this.
-	// TODO: Once we have a good simple alternative to the actual use case
-	// of partner=, issue a non-conditional deprecation warning. This might
-	// be something like if ps == ... ; handling=original ; endif
-	if (override->partner_hash && (!override->command_list.commands.empty() || !override->post_command_list.commands.empty())) {
-	        LogOverlay(LOG_NOTICE, "WARNING: [%S] tried to combine the deprecated partner= option with a command list.\n"
-	                               "This almost certainly won't do what you want. Try something like this instead:\n"
-	                               "\n"
-	                               "[%S_VERTEX_SHADER]\n"
-	                               "hash = <vertex shader hash>\n"
-	                               "filter_index = 5\n"
-	                               "\n"
-	                               "[%S_PIXEL_SHADER]\n"
-	                               "hash = <pixel shader hash>\n"
-	                               "x = vs\n"
-	                               "\n"
-	                               , id, id, id);
-	}
-
 	if (override->depth_filter != DepthBufferFilter::NONE) {
 	        LogOverlay(LOG_NOTICE, "NOTICE: [%S] used deprecated depth_filter option. Consider texture filtering for more flexibility:\n"
 	                               "\n"
@@ -2294,11 +2251,6 @@ static void ParseShaderOverrideSections()
 	bool duplicate, found;
 	bool disable_scissor;
 
-	// Lock entire routine. This can be re-inited live.  These shaderoverrides
-	// are unlikely to be changing much, but for consistency.
-	//  We actually already lock the entire config reload, so this is redundant -DSS
-	EnterCriticalSectionPretty(&G->mCriticalSection);
-
 	G->mShaderOverrideMap.clear();
 
 	lower = ini_sections.lower_bound(wstring(L"ShaderOverride"));
@@ -2322,11 +2274,6 @@ static void ParseShaderOverrideSections()
 		check_shaderoverride_duplicates(duplicate, id, override, hash);
 
 		override->depth_filter = GetIniEnumClass(id, L"depth_filter", DepthBufferFilter::NONE, NULL, DepthBufferFilterNames);
-
-		// Simple partner shader filtering. Deprecated - more advanced
-		// filtering can be achieved by setting an ini param in the
-		// partner's [ShaderOverride] section, or the below filter_index
-		override->partner_hash = GetIniHash(id, L"partner", 0, NULL);
 
 		// Superior partner shader filtering that also supports a bound/unbound case
 		override->filter_index = GetIniFloat(id, L"filter_index", FLT_MAX, NULL);
@@ -2355,7 +2302,6 @@ static void ParseShaderOverrideSections()
 
 		warn_deprecated_shaderoverride_options(id, override);
 	}
-	LeaveCriticalSection(&G->mCriticalSection);
 }
 
 // Oh C++, do you really not have a .split() in your standard library?
@@ -2692,7 +2638,6 @@ static void ParseShaderRegexSections()
 // function. Used by ParseCommandList to find any unrecognised lines.
 wchar_t *TextureOverrideIniKeys[] = {
 	L"hash",
-	L"stereomode",
 	L"format",
 	L"width",
 	L"height",
@@ -2899,7 +2844,6 @@ static void parse_texture_override_common(const wchar_t *id, TextureOverride *ov
 	if (found)
 		override->has_match_priority = true;
 
-	override->stereoMode = GetIniInt(id, L"StereoMode", -1, NULL);
 	override->format = GetIniInt(id, L"Format", -1, NULL);
 	override->width = GetIniInt(id, L"Width", -1, NULL);
 	override->height = GetIniInt(id, L"Height", -1, NULL);
@@ -3233,11 +3177,6 @@ static void ParseTextureOverrideSections()
 	bool found;
 	map<uint32_t, int> max_byte_width_map;
 
-	// Lock entire routine, this can be re-inited.  These shaderoverrides
-	// are unlikely to be changing much, but for consistency.
-	//  We actually already lock the entire config reload, so this is redundant -DSS
-	EnterCriticalSectionPretty(&G->mCriticalSection);
-
 	G->mTextureOverrideMap.clear();
 	G->mFuzzyTextureOverrides.clear();
 
@@ -3310,8 +3249,6 @@ static void ParseTextureOverrideSections()
 			registered_command_lists.push_back(&to.post_command_list);
 		}
 	}
-
-	LeaveCriticalSection(&G->mCriticalSection);
 }
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ff476088(v=vs.85).aspx
@@ -4079,52 +4016,6 @@ static void ParseExplicitCommandListSections()
 	}
 }
 
-// Check the Stereo availability. If stereo is disabled we otherwise will crash 
-// when trying to create stereo texture.  This should be more graceful now.
-
-NvAPI_Status CheckStereo()
-{
-	NvU8 isStereoEnabled;
-	NvAPI_Status status = NvAPI_Stereo_IsEnabled(&isStereoEnabled);
-	if (status != NVAPI_OK)
-	{
-		// GeForce Stereoscopic 3D driver is not installed on the system
-		NvAPI_ShortString nvDescription;
-		NvAPI_GetErrorMessage(status, nvDescription);
-		LogInfo("  stereo init failed: no stereo driver detected- %s\n", nvDescription);
-		return status;
-	}
-
-	// Stereo is available but not enabled, let's enable it if specified.
-	if (!isStereoEnabled)
-	{
-		LogInfo("  stereo available but disabled.\n");
-
-		if (!G->gForceStereo)
-			return NVAPI_STEREO_NOT_ENABLED;
-
-		status = NvAPI_Stereo_Enable();
-		if (status != NVAPI_OK)
-		{
-			NvAPI_ShortString nvDescription;
-			NvAPI_GetErrorMessage(status, nvDescription);
-			LogInfo("   force enabling stereo failed- %s\n", nvDescription);
-			return status;
-		}
-	}
-
-	if (G->gCreateStereoProfile)
-	{
-		LogInfo("  enabling registry profile.\n");
-
-		NvAPI_Stereo_CreateConfigurationProfileRegistryKey(NVAPI_STEREO_DEFAULT_REGISTRY_PROFILE);
-	}
-
-	return NVAPI_OK;
-}
-
-
-
 void FlagConfigReload(HackerDevice *device, void *private_data)
 {
 	// When we reload the configuration, we are going to clear the existing
@@ -4326,21 +4217,12 @@ void LoadConfigFile()
 	G->SCREEN_FULLSCREEN = GetIniInt(L"Device", L"full_screen", -1, NULL);
 	RegisterIniKeyBinding(L"Device", L"toggle_full_screen", ToggleFullScreen, NULL, 0, NULL);
 	RegisterIniKeyBinding(L"Device", L"force_full_screen_on_key", ForceFullScreen, NULL, 0, NULL);
-	G->gForceStereo = GetIniInt(L"Device", L"force_stereo", 0, NULL);
 	G->SCREEN_ALLOW_COMMANDS = GetIniBool(L"Device", L"allow_windowcommands", false, NULL);
 
 	G->mResolutionInfo.from = GetIniEnumClass(L"Device", L"get_resolution_from", GetResolutionFrom::INVALID, NULL, GetResolutionFromNames);
 
 	G->hide_cursor = GetIniBool(L"Device", L"hide_cursor", false, NULL);
 	G->cursor_upscaling_bypass = GetIniBool(L"Device", L"cursor_upscaling_bypass", true, NULL);
-
-	// [Stereo]
-	LogInfo("[Stereo]\n");
-	bool automaticMode = GetIniBool(L"Stereo", L"automatic_mode", false, NULL);				// in NVapi dll
-	G->gCreateStereoProfile = GetIniBool(L"Stereo", L"create_profile", false, NULL);
-	G->gSurfaceCreateMode = GetIniInt(L"Stereo", L"surface_createmode", -1, NULL);
-	G->gSurfaceSquareCreateMode = GetIniInt(L"Stereo", L"surface_square_createmode", -1, NULL);
-	G->gForceNoNvAPI = GetIniBool(L"Stereo", L"force_no_nvapi", false, NULL);
 
 	// [Rendering]
 	LogInfo("[Rendering]\n");
@@ -4391,19 +4273,12 @@ void LoadConfigFile()
 	G->EXPORT_BINARY = GetIniBool(L"Rendering", L"export_binary", false, NULL);
 	G->DumpUsage = GetIniBool(L"Rendering", L"dump_usage", false, NULL);
 
-	G->StereoParamsReg = GetIniInt(L"Rendering", L"stereo_params", 125, NULL);
 	G->IniParamsReg = GetIniInt(L"Rendering", L"ini_params", 120, NULL);
-	G->decompiler_settings.StereoParamsReg = G->StereoParamsReg;
 	G->decompiler_settings.IniParamsReg = G->IniParamsReg;
-	if (G->StereoParamsReg >= D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT) {
-		IniWarningW(L"Option stereo_params=%i out of range\n - [%ls]\n", G->StereoParamsReg, INI_FILENAME);
-		G->StereoParamsReg = -1;
-	}
 	if (G->IniParamsReg >= D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT) {
 		IniWarningW(L"Option ini_params=%i out of range\n - [%ls]\n", G->IniParamsReg, INI_FILENAME);
 		G->IniParamsReg = -1;
 	}
-
 
 	// Automatic section
 	G->decompiler_settings.fixSvPosition = GetIniBool(L"Rendering", L"fix_sv_position", false, NULL);
@@ -4566,9 +4441,6 @@ void LoadConfigFile()
 	G->post_clear_uav_float_command_list.clear();
 	ParseCommandList(L"ClearUnorderedAccessViewFloat", &G->clear_uav_float_command_list, &G->post_clear_uav_float_command_list, NULL);
 
-	LogInfo("[Profile]\n");
-	ParseDriverProfile();
-
 	LogInfo("\n");
 
 	if (G->hide_cursor || G->SCREEN_UPSCALING)
@@ -4617,9 +4489,6 @@ void LoadProfileManagerConfig(const wchar_t *config_dir)
 		int unbuffered = setvbuf(LogFile, NULL, _IONBF, 0);
 		LogInfo("    unbuffered return: %d\n", unbuffered);
 	}
-
-	LogInfo("[Profile]\n");
-	ParseDriverProfile();
 
 	LogInfo("\n");
 }

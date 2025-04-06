@@ -24,8 +24,6 @@
 #if MIGOTO_DX == 11
 #include "DirectX11\HookedDevice.h"
 #include "DirectX11\HookedContext.h"
-#elif MIGOTO_DX == 9
-#include "DirectX9\HookedDeviceDX9.h"
 #endif // MIGOTO_DX
 
 
@@ -50,7 +48,7 @@ const int INI_PARAMS_SIZE_WARNING = 256;
 // This critical section must be held to avoid race conditions when creating
 // any resource. The nvapi functions used to set the resource creation mode
 // affect global state, so if multiple threads are creating resources
-// simultaneously it is possible for a StereoMode override or stereo/mono copy
+// simultaneously it is possible for mono copy
 // on one thread to affect another. This should be taken before setting the
 // surface creation mode and released only after it has been restored. If the
 // creation mode is not being set it should still be taken around the actual

@@ -32,7 +32,6 @@ struct ShaderOverride;
 
 struct DrawContext
 {
-	float oldSeparation;
 	ID3D11PixelShader *oldPixelShader;
 	ID3D11VertexShader *oldVertexShader;
 	CommandList *post_commands[5];
@@ -42,7 +41,6 @@ struct DrawContext
 			UINT VertexCount, UINT IndexCount, UINT InstanceCount,
 			UINT FirstVertex, UINT FirstIndex, UINT FirstInstance,
 			ID3D11Buffer **indirect_buffer, UINT args_offset) :
-		oldSeparation(FLT_MAX),
 		oldVertexShader(NULL),
 		oldPixelShader(NULL),
 		call_info(type, VertexCount, IndexCount, InstanceCount, FirstVertex, FirstIndex, FirstInstance,
@@ -189,7 +187,7 @@ private:
 			UINT StartSlot,
 			UINT NumViews,
 			ID3D11ShaderResourceView *const *ppShaderResourceViews)>
-	void BindStereoResources();
+	void BindResources();
 	template <void (__stdcall ID3D11DeviceContext::*OrigSetShaderResources)(THIS_
 			UINT StartSlot,
 			UINT NumViews,
