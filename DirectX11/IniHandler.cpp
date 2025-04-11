@@ -2251,6 +2251,11 @@ static void ParseShaderOverrideSections()
 	bool duplicate, found;
 	bool disable_scissor;
 
+	// Lock entire routine. This can be re-inited live.  These shaderoverrides
+	// are unlikely to be changing much, but for consistency.
+	//  We actually already lock the entire config reload, so this is redundant -DSS
+	EnterCriticalSectionPretty(&G->mCriticalSection);
+
 	G->mShaderOverrideMap.clear();
 
 	lower = ini_sections.lower_bound(wstring(L"ShaderOverride"));
@@ -2302,6 +2307,7 @@ static void ParseShaderOverrideSections()
 
 		warn_deprecated_shaderoverride_options(id, override);
 	}
+	LeaveCriticalSection(&G->mCriticalSection);
 }
 
 // Oh C++, do you really not have a .split() in your standard library?
@@ -3177,6 +3183,11 @@ static void ParseTextureOverrideSections()
 	bool found;
 	map<uint32_t, int> max_byte_width_map;
 
+	// Lock entire routine, this can be re-inited.  These shaderoverrides
+	// are unlikely to be changing much, but for consistency.
+	//  We actually already lock the entire config reload, so this is redundant -DSS
+	EnterCriticalSectionPretty(&G->mCriticalSection);
+
 	G->mTextureOverrideMap.clear();
 	G->mFuzzyTextureOverrides.clear();
 
@@ -3249,6 +3260,7 @@ static void ParseTextureOverrideSections()
 			registered_command_lists.push_back(&to.post_command_list);
 		}
 	}
+	LeaveCriticalSection(&G->mCriticalSection);
 }
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ff476088(v=vs.85).aspx
