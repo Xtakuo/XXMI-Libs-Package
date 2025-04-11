@@ -1991,7 +1991,9 @@ STDMETHODIMP HackerDevice::CreateBuffer(THIS_
 	// Override custom settings?
 	pNewDesc = process_texture_override(hash, pDesc, &newDesc);
 
+	LockResourceCreationMode();
 	HRESULT hr = mOrigDevice1->CreateBuffer(pNewDesc, pInitialData, ppBuffer);
+	UnlockResourceCreationMode();
 
 	if (hr == S_OK && ppBuffer && *ppBuffer)
 	{
@@ -2044,7 +2046,9 @@ STDMETHODIMP HackerDevice::CreateTexture1D(THIS_
 	// Override custom settings?
 	pNewDesc = process_texture_override(hash, pDesc, &newDesc);
 
+	LockResourceCreationMode();
 	HRESULT hr = mOrigDevice1->CreateTexture1D(pNewDesc, pInitialData, ppTexture1D);
+	UnlockResourceCreationMode();
 
 	if (hr == S_OK && ppTexture1D && *ppTexture1D)
 	{
@@ -2155,7 +2159,10 @@ STDMETHODIMP HackerDevice::CreateTexture2D(THIS_
 	pNewDesc = process_texture_override(hash, pDesc, &newDesc);
 
 	// Actual creation:
+	LockResourceCreationMode();
 	HRESULT hr = mOrigDevice1->CreateTexture2D(pNewDesc, pInitialData, ppTexture2D);
+	UnlockResourceCreationMode();
+
 	if (ppTexture2D) LogDebug("  returns result = %x, handle = %p\n", hr, *ppTexture2D);
 
 	// Register texture. Every one seen.
@@ -2223,7 +2230,9 @@ STDMETHODIMP HackerDevice::CreateTexture3D(THIS_
 	// Override custom settings?
 	pNewDesc = process_texture_override(hash, pDesc, &newDesc);
 
+	LockResourceCreationMode();
 	HRESULT hr = mOrigDevice1->CreateTexture3D(pNewDesc, pInitialData, ppTexture3D);
+	UnlockResourceCreationMode();
 
 	// Register texture.
 	if (hr == S_OK && ppTexture3D)
