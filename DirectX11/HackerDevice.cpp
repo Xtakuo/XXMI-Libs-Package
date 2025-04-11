@@ -1904,7 +1904,7 @@ static void override_resource_desc_common_2d_3d(DescType *desc, TextureOverride 
 
 static void override_resource_desc(D3D11_BUFFER_DESC *desc, TextureOverride *textureOverride) {
 	if (textureOverride->override_byte_width != -1) {
-		if (desc->ByteWidth != textureOverride->override_byte_width) {
+		if (desc->ByteWidth < textureOverride->override_byte_width) {
 			LogInfo("  resizing buffer: %d->%d\n", desc->ByteWidth, textureOverride->override_byte_width);
 			//LogOverlayW(LOG_WARNING, L"Buffer resized: %d->%d\n - [%s]\n", desc->ByteWidth, textureOverride->override_byte_width, textureOverride->ini_section.c_str());
 			desc->ByteWidth = textureOverride->override_byte_width;
