@@ -1162,17 +1162,6 @@ HMODULE __stdcall Hooked_LoadLibraryExW(_In_ LPCWSTR lpLibFileName, _Reserved_ H
 			if (module)
 				return module;
 		}
-
-		if (G->load_library_redirect > 0)
-		{
-			module = ReplaceOnMatch(lpLibFileName, hFile, dwFlags, L"original_nvapi64.dll", L"nvapi64.dll");
-			if (module)
-				return module;
-
-			module = ReplaceOnMatch(lpLibFileName, hFile, dwFlags, L"original_nvapi.dll", L"nvapi.dll");
-			if (module)
-				return module;
-		}
 	} else
 		hook_enabled = true;
 

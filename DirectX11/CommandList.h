@@ -867,7 +867,7 @@ enum class ParamOverrideType {
 	SCISSOR_BOTTOM,
 	HUNTING,
 	FRAME_ANALYSIS,
-	EFFECTIVE_DPI, // For calculating UI scaling factor on 4K+. Note not the same thing as raw DPI. // frame. Intended for use if the convergence may have
+	EFFECTIVE_DPI, // For calculating UI scaling factor on 4K+. Note not the same thing as raw DPI.
 	SLI,
 	STEREO_ACTIVE,
 	STEREO_AVAILABLE,
