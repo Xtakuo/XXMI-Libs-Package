@@ -867,7 +867,10 @@ enum class ParamOverrideType {
 	SCISSOR_BOTTOM,
 	HUNTING,
 	FRAME_ANALYSIS,
-	EFFECTIVE_DPI, // For calculating UI scaling factor on 4K+. Note not the same thing as raw DPI.
+	EFFECTIVE_DPI, // For calculating UI scaling factor on 4K+. Note not the same thing as raw DPI. // frame. Intended for use if the convergence may have
+	SLI,
+	STEREO_ACTIVE,
+	STEREO_AVAILABLE,
 };
 static EnumName_t<const wchar_t *, ParamOverrideType> ParamOverrideTypeNames[] = {
 	{L"rt_width", ParamOverrideType::RT_WIDTH},
@@ -904,6 +907,9 @@ static EnumName_t<const wchar_t *, ParamOverrideType> ParamOverrideTypeNames[] =
 	{L"hunting", ParamOverrideType::HUNTING},
 	{L"frame_analysis", ParamOverrideType::FRAME_ANALYSIS},
 	{L"effective_dpi", ParamOverrideType::EFFECTIVE_DPI},
+	{L"sli", ParamOverrideType::SLI},
+	{L"stereo_active", ParamOverrideType::STEREO_ACTIVE},
+	{L"stereo_available", ParamOverrideType::STEREO_AVAILABLE},
 	{NULL, ParamOverrideType::INVALID} // End of list marker
 };
 class CommandListOperand :

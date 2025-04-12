@@ -2860,6 +2860,12 @@ float CommandListOperand::evaluate(CommandListState *state, HackerDevice *device
 			return G->analyse_frame;
 		case ParamOverrideType::EFFECTIVE_DPI:
 			return get_effective_dpi();
+		case ParamOverrideType::SLI:
+			return 0;
+		case ParamOverrideType::STEREO_ACTIVE:
+			return 0;
+		case ParamOverrideType::STEREO_AVAILABLE:
+			return 0;
 		// XXX: If updating this list, be sure to also update
 		// XXX: operand_allowed_in_context()
 	}
@@ -2992,6 +2998,15 @@ bool CommandListOperand::static_evaluate(float *ret, HackerDevice *device)
 				return true;
 			}
 			break;
+		case ParamOverrideType::SLI:
+			*ret = 0.0;
+			return true;
+		case ParamOverrideType::STEREO_ACTIVE:
+			*ret = 0.0;
+			return true;
+		case ParamOverrideType::STEREO_AVAILABLE:
+			*ret = 0.0;
+			return true;
 	}
 
 	return false;
@@ -3770,6 +3785,9 @@ static bool operand_allowed_in_context(ParamOverrideType type, CommandListScope 
 		case ParamOverrideType::TIME:
 		case ParamOverrideType::HUNTING:
 		case ParamOverrideType::EFFECTIVE_DPI:
+		case ParamOverrideType::SLI:
+		case ParamOverrideType::STEREO_ACTIVE:
+		case ParamOverrideType::STEREO_AVAILABLE:
 			return true;
 	}
 	return false;
