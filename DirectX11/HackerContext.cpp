@@ -790,7 +790,7 @@ void HackerContext::BeforeDraw(DrawContext &data)
 					if (mCurrentIndexBuffer)
 						G->mSelectedPixelShader_IndexBuffer.insert(mCurrentIndexBuffer);
 				}
-				else if (G->marking_mode == MarkingMode::SKIP)
+				if (G->marking_mode == MarkingMode::SKIP)
 				{
 					data.call_info.skip = true;
 
