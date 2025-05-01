@@ -91,13 +91,13 @@ static bool verify_intended_target_late()
 
 static bool InitializeDLL()
 {
-	setlocale(LC_CTYPE, "en_US.UTF-8");
+	const char* default_locale = std::setlocale(LC_CTYPE, nullptr);
+	G->gDefaultLocale = default_locale ? default_locale : "";
 
 	if (G->gInitialized)
 		return true;
 
 	LoadConfigFile();
-
 
 	G->bIntendedTargetExe = verify_intended_target_late();
 	if (!G->bIntendedTargetExe) {

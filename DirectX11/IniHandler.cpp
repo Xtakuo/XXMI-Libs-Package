@@ -4095,6 +4095,8 @@ void LoadConfigFile()
 
 	G->gInitialized = true;
 
+	setlocale(LC_CTYPE, "en_US.UTF-8");
+
 	if (!GetModuleFileName(migoto_handle, iniFile, MAX_PATH))
 		DoubleBeepExit();
 	wcsrchr(iniFile, L'\\')[1] = 0;
@@ -4458,6 +4460,8 @@ void LoadConfigFile()
 	if (G->hide_cursor || G->SCREEN_UPSCALING)
 		InstallMouseHooks(G->hide_cursor);
 
+	setlocale(LC_CTYPE, G->gDefaultLocale.c_str());
+
 	emit_ini_warning_tone();
 }
 
@@ -4515,6 +4519,8 @@ void SavePersistentSettings()
 		return;
 	G->user_config_dirty = 0;
 
+	setlocale(LC_CTYPE, "en_US.UTF-8");
+
 	// TODO: Ability to update existing file rather than overwriting:
 	//wfopen_ensuring_access(&f, G->user_config.c_str(), L"r+");
 	//if (!f)
@@ -4539,6 +4545,8 @@ void SavePersistentSettings()
 		fprintf_s(f, "%ls = %.9g\n", global->name.c_str(), global->fval);
 
 	fclose(f);
+
+	setlocale(LC_CTYPE, G->gDefaultLocale.c_str());
 }
 
 static void WipeUserConfig()
@@ -4613,6 +4621,9 @@ void ReloadConfig(HackerDevice *device)
 	OverrideSave.Reset(device);
 
 	LoadConfigFile();
+
+	setlocale(LC_CTYPE, "en_US.UTF-8");
+
 	optimise_command_lists(device);
 
 	MarkAllShadersDeferredUnprocessed();
@@ -4640,6 +4651,8 @@ void ReloadConfig(HackerDevice *device)
 		// HackerContext doesn't exist.
 		LogOverlay(LOG_DIRE, "BUG: No HackerContext at ReloadConfig - please report this\n");
 	}
+
+	setlocale(LC_CTYPE, G->gDefaultLocale.c_str());
 
 	auto stop = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<float> duration = stop - start;
