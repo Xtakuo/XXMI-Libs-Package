@@ -362,8 +362,7 @@ xcopy "$(SolutionDir)Dependencies\*.*" "$(TargetDir)"  /E /Y /s
       <ForceSymbolReferences>CreateDXGIFactory</ForceSymbolReferences>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /Y /R "$(WindowsSdkDir)Redist\D3D\x64\d3dcompiler_47.dll" "$(TargetDir)"
-xcopy /Y /R /S "$(SolutionDir)Dependencies\*.*" "$(TargetDir)"</Command>
+      <Command>xcopy /Y /R /S "$(SolutionDir)Dependencies\*.*" "$(TargetDir)"</Command>
       <Message>Copy all Dependencies to target directory.</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -393,8 +392,7 @@ xcopy /Y /R /S "$(SolutionDir)Dependencies\*.*" "$(TargetDir)"</Command>
       <ForceSymbolReferences>CreateDXGIFactory</ForceSymbolReferences>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /Y /R "$(WindowsSdkDir)Redist\D3D\x64\d3dcompiler_47.dll" "$(TargetDir)"
-</Command>
+      <Command>xcopy /Y /R /S "$(SolutionDir)Dependencies\*.*" "$(TargetDir)"</Command>
       <Message>Copy all Dependencies to target directory.</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
