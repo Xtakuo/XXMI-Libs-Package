@@ -4212,6 +4212,16 @@ void LoadConfigFile()
 		G->gSettingsAutoSaveInterval = 2147483647;
 	}
 
+	// Allows to configure fallback screen resolution to be used as return for `window_width` and `window_height`
+	G->gFallbackScreenWidth = GetIniInt(L"System", L"screen_width", 1920, NULL);
+	if (G->gFallbackScreenWidth < 640 || G->gFallbackScreenWidth > 15360) {
+		G->gFallbackScreenWidth = 1920;
+	}
+	G->gFallbackScreenHeight = GetIniInt(L"System", L"screen_height", 1080, NULL);
+	if (G->gFallbackScreenHeight < 480 || G->gFallbackScreenHeight > 8640) {
+		G->gFallbackScreenHeight = 1080;
+	}
+
 	// [Device] (DXGI parameters)
 	LogInfo("[Device]\n");
 	G->SCREEN_WIDTH = GetIniInt(L"Device", L"width", -1, NULL);

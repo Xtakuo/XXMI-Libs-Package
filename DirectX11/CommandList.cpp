@@ -2849,8 +2849,8 @@ static float HeuristicGetWindowWidth(CommandListState* state)
 		return fret;
 
 	}
-	// All methods failed, return zero
-	return 0;
+	// All methods failed, return fallback width
+	return (float)G->gFallbackScreenWidth;
 }
 
 static float HeuristicGetWindowHeight(CommandListState* state)
@@ -2873,8 +2873,8 @@ static float HeuristicGetWindowHeight(CommandListState* state)
 	if (fret >= 480) {
 		return fret;
 	}
-	// All methods failed, return zero
-	return 0;
+	// All methods failed, return fallback height
+	return (float)G->gFallbackScreenHeight;
 }
 
 float CommandListOperand::evaluate(CommandListState *state, HackerDevice *device)

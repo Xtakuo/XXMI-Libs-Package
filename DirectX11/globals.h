@@ -494,6 +494,8 @@ struct Globals
 	int gSettingsAutoSaveInterval;
 	int gConfigInitializationDelay;
 	bool gSkipEarlyIncludesLoad;
+	int gFallbackScreenWidth;
+	int gFallbackScreenHeight;
 
 	CRITICAL_SECTION mCriticalSection;
 
@@ -690,6 +692,8 @@ struct Globals
 		gSettingsAutoSaveInterval(0),
 		gConfigInitializationDelay(0),
 		gSkipEarlyIncludesLoad(true),
+		gFallbackScreenWidth(0),
+		gFallbackScreenHeight(0),
 		dump_all_profiles(false),
 		gTime(0)
 	{
