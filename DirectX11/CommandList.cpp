@@ -2828,8 +2828,58 @@ static void UpdateCursorResources(CommandListState *state)
 		Profiling::end(&profiling_state, &Profiling::cursor_overhead);
 }
 
+static float HeuristicGetWindowWidth(CommandListState* state)
+{
+	float fret;
+	// Try to get width from window_rect
+	UpdateWindowInfo(state);
+	fret = (float)state->window_rect.right;
+	if (fret >= 640) {
+		return fret;
+	}
+	// Fallback to RES_WIDTH
+	fret = (float)G->mResolutionInfo.width;
+	if (fret >= 640) {
+		return fret;
+	}
+	// Fallback to RT_WIDTH
+	ProcessParamRTSize(state);
+	fret = state->rt_width;
+	if (fret >= 640) {
+		return fret;
+
+	}
+	// All methods failed, return zero
+	return 0;
+}
+
+static float HeuristicGetWindowHeight(CommandListState* state)
+{
+	float fret;
+	// Try to get height from window_rect
+	UpdateWindowInfo(state);
+	fret = (float)state->window_rect.bottom;
+	if (fret >= 480) {
+		return fret;
+	}
+	// Fallback to RES_HEIGHT
+	fret = (float)G->mResolutionInfo.height;
+	if (fret >= 480) {
+		return fret;
+	}
+	// Fallback to RT_HEIGHT
+	ProcessParamRTSize(state);
+	fret = state->rt_height;
+	if (fret >= 480) {
+		return fret;
+	}
+	// All methods failed, return zero
+	return 0;
+}
+
 float CommandListOperand::evaluate(CommandListState *state, HackerDevice *device)
 {
+	float ftemp;
 	float fret;
 
 	if (state)
@@ -2885,11 +2935,9 @@ float CommandListOperand::evaluate(CommandListState *state, HackerDevice *device
 			ProcessParamRTSize(state);
 			return state->rt_height;
 		case ParamOverrideType::WINDOW_WIDTH:
-			UpdateWindowInfo(state);
-			return (float)state->window_rect.right;
+			return HeuristicGetWindowWidth(state);
 		case ParamOverrideType::WINDOW_HEIGHT:
-			UpdateWindowInfo(state);
-			return (float)state->window_rect.bottom;
+			return HeuristicGetWindowHeight(state);
 		case ParamOverrideType::TEXTURE:
 			return process_texture_filter(state);
 		case ParamOverrideType::SHADER:
@@ -2955,12 +3003,34 @@ float CommandListOperand::evaluate(CommandListState *state, HackerDevice *device
 			return (float)state->cursor_window_coords.y;
 		case ParamOverrideType::CURSOR_X:
 			UpdateCursorInfo(state);
-			UpdateWindowInfo(state);
-			return (float)state->cursor_window_coords.x / (float)state->window_rect.right;
+			ftemp = HeuristicGetWindowWidth(state);
+			// Try to get cursor X from cursor_window_coords
+			fret = (float)state->cursor_window_coords.x / ftemp;
+			if (abs(fret) > 0.000001) {
+				return fret;
+			}
+			// Fallback to CURSOR_SCREEN_X
+			fret = (float)state->cursor_info.ptScreenPos.x / ftemp;
+			if (abs(fret) > 0.000001) {
+				return fret;
+			}
+			// All methods failed, return zero
+			return 0;
 		case ParamOverrideType::CURSOR_Y:
 			UpdateCursorInfo(state);
-			UpdateWindowInfo(state);
-			return (float)state->cursor_window_coords.y / (float)state->window_rect.bottom;
+			ftemp = HeuristicGetWindowHeight(state);
+			// Try to get cursor Y from cursor_window_coords
+			fret = (float)state->cursor_window_coords.y / ftemp;
+			if (abs(fret) > 0.000001) {
+				return fret;
+			}
+			// Fallback to CURSOR_SCREEN_Y
+			fret = (float)state->cursor_info.ptScreenPos.y / ftemp;
+			if (abs(fret) > 0.000001) {
+				return fret;
+			}
+			// All methods failed, return zero
+			return 0;
 		case ParamOverrideType::CURSOR_HOTSPOT_X:
 			UpdateCursorInfoEx(state);
 			return (float)state->cursor_info_ex.xHotspot;
