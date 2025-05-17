@@ -364,6 +364,8 @@ float get_effective_dpi()
 	static tGetProcessDpiAwareness fnGetProcessDpiAwareness = nullptr;
 	static tSetThreadDpiAwarenessContext fnSetThreadDpiAwarenessContext = nullptr;
 	static bool init_done = false;
+	float fret = 0.0f;
+
 	if (!init_done) {
 		// GetDpiForMonitor & GetProcessDpiAwareness were introduced in Windows
 		// 8.1 and SetThreadDpiAwarenessContext was added in Win 10 1607, so
@@ -431,7 +433,7 @@ float get_effective_dpi()
 		fnGetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &x, &y);
 		if (fnSetThreadDpiAwarenessContext)
 			fnSetThreadDpiAwarenessContext(old);
-		return (float)x;
+		fret = (float)x;
 	}
 
 	// Fallback for Win 7: Just return 96, which is the effective DPI Windows
@@ -443,7 +445,11 @@ float get_effective_dpi()
 	// using a 4K display anyway. We definitely should not be naive and return
 	// the real / physical / raw DPI here, as that is not the same as effective
 	// DPI and generally unsuitable for UI scaling.
-	return 96.0f;
+	if (fret < 96.0f) {
+		fret = 96.0f;
+	}
+
+	return fret;
 }
 
 #if MIGOTO_DX == 9
