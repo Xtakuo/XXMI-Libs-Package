@@ -1572,6 +1572,31 @@ STDMETHODIMP HackerDevice::CreateUnorderedAccessView(THIS_
 	/* [annotation] */
 	__out_opt  ID3D11UnorderedAccessView **ppUAView)
 {
+	if (pDesc) {
+		TextureOverrideMatches matches;
+		
+		find_texture_overrides_for_resource(pResource, &matches, NULL);
+
+		if (!matches.empty()) {
+			TextureOverride* textureOverride = NULL;
+			int override_num_elements = -1;
+
+			for (unsigned i = 0; i < matches.size(); i++) {
+				textureOverride = matches[i];
+				if (textureOverride->override_num_elements > override_num_elements) {
+					override_num_elements = textureOverride->override_num_elements - pDesc->Buffer.FirstElement;
+				}
+			}
+
+			if (override_num_elements != -1 && pDesc->Buffer.NumElements < override_num_elements) {
+				D3D11_UNORDERED_ACCESS_VIEW_DESC pNewDesc = *pDesc;
+				pNewDesc.Buffer.NumElements = override_num_elements;
+				//LogOverlayW(LOG_INFO, L"UAV resized: %d->%d\n", pDesc->Buffer.NumElements, override_num_elements);
+				return mOrigDevice1->CreateUnorderedAccessView(pResource, &pNewDesc, ppUAView);
+			}
+		}
+	}
+
 	return mOrigDevice1->CreateUnorderedAccessView(pResource, pDesc, ppUAView);
 }
 

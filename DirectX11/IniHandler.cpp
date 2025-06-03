@@ -2651,6 +2651,7 @@ wchar_t *TextureOverrideIniKeys[] = {
 	L"height_multiply",
 	L"override_byte_stride",
 	L"override_vertex_count",
+	L"uav_byte_stride",
 	L"iteration",
 	L"filter_index",
 	L"expand_region_copy",
@@ -2856,7 +2857,6 @@ static void parse_texture_override_common(const wchar_t *id, TextureOverride *ov
 	override->width_multiply = GetIniFloat(id, L"width_multiply", 1.0f, NULL);
 	override->height_multiply = GetIniFloat(id, L"height_multiply", 1.0f, NULL);
 
-
 	// Handle buffer resize aka vertex limit raise feature.
 	int override_vertex_count = (int)GetConstantIniVariable(id, L"override_vertex_count", -1.0f, &found);
 	if (override_vertex_count > 0) {
@@ -2868,6 +2868,16 @@ static void parse_texture_override_common(const wchar_t *id, TextureOverride *ov
 		}
 		// Override buffer size according to section params.
 		override->override_byte_width = override_byte_stride * override_vertex_count;
+		
+		// Handle UAV resize
+		int uav_byte_stride = (int)GetConstantIniVariable(id, L"uav_byte_stride", -1.0f, &found);
+		if (uav_byte_stride > 0) {
+			// Use StructureByteStride override (useful when actual buffer stride is different from the one declared by a game)
+			override->override_num_elements = override_vertex_count * override_byte_stride / uav_byte_stride;
+		} else {
+			// Use VertexCount override
+			override->override_num_elements = override_vertex_count;
+		}
 	} else if(wcsstr(override->ini_section.c_str(), L"VertexLimitRaise") != 0) {
 		// Fall back to ~8MB buffer to mimic original GIMI behaviour if `VertexLimitRaise` keyword is found in the section header.
 		override->override_byte_width = 8800000;
