@@ -1681,7 +1681,42 @@ STDMETHODIMP_(void) HackerContext::CopyResource(THIS_
 		MarkResourceHashContaminated(pDstResource, 0, pSrcResource, 0, 'C', 0, 0, 0, NULL);
 	}
 
-	 mOrigContext1->CopyResource(pDstResource, pSrcResource);
+	TextureOverrideMatches matches;
+	find_texture_overrides_for_resource(pDstResource, &matches, NULL);
+
+	if (!matches.empty()) {
+		// Use CopySubresourceRegion when copying to resized buffer
+		// Otherwise CopyResource fails on buffers size mismatch
+
+		TextureOverride* textureOverride = NULL;
+		int override_byte_width = -1;
+
+		for (unsigned i = 0; i < matches.size(); i++) {
+			textureOverride = matches[i];
+			if (textureOverride->override_byte_width > override_byte_width) {
+				override_byte_width = textureOverride->override_byte_width;
+			}
+		}
+
+		if (override_byte_width != -1) {
+			mOrigContext1->CopySubresourceRegion(
+				pDstResource,           // pDstResource
+				0,                      // DstSubresource (0 for buffers)
+				0,                      // DstX (byte offset into destination buffer)
+				0, 0,                   // DstY, DstZ (must be 0 for buffer)
+				pSrcResource,           // pSrcResource
+				0,                      // SrcSubresource (0 for buffers)
+				NULL                    // pSrcBox (can be NULL to copy whole buffer)
+			);
+
+			if (G->track_texture_updates == 1)
+				PropagateResourceHash(pDstResource, pSrcResource);
+
+			return;
+		}
+	}
+	
+	mOrigContext1->CopyResource(pDstResource, pSrcResource);
 
 	if (G->track_texture_updates == 1)
 		PropagateResourceHash(pDstResource, pSrcResource);
