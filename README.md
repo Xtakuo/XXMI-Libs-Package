@@ -23,5 +23,5 @@
 - Chiri, [Bo3b](https://github.com/bo3b), [DarkStarSword](https://github.com/DarkStarSword) — for the monumental work behind the original 3dmigoto.
 - [SilentNightSound](https://github.com/SilentNightSound) — for pioneering AGMG D3D modding and introducing foundational GIMI DLL features.
 - [SinsOfSeven](https://github.com/SinsOfSeven) — for input on architecture decisions and original source analysis.
-- [Nurarihyon](https://github.com/NurarihyonMaou) — for contributions and optimization insights.
+- [Nurarihyon](https://github.com/NurarihyonMaou), [Scyll](https://gamebanana.com/members/2644630) — for contributions and optimization insights.
 - [Leotorrez](https://github.com/leotorrez) & [Gustav0](https://github.com/Seris0/Gustav0) — for extensive testing and tireless listening to community feedback.
