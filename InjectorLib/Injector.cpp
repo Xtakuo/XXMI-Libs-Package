@@ -197,6 +197,18 @@ DLL_EXPORT int UnhookLibrary(HHOOK *hook, HANDLE* mutex)
 }
 
 
+// ----------------------------------------------------------------------------
+// Launches target exe file with provided args and working directory
+DLL_EXPORT int StartProcess(LPCWSTR exe_path, LPCWSTR work_dir, LPCWSTR start_args)
+{
+	HINSTANCE result = ShellExecute(NULL, NULL, exe_path, start_args, work_dir, SW_SHOWNORMAL);
+	if ((INT_PTR)result <= 32) {
+		return (INT_PTR)result;
+	}
+	return EXIT_SUCCESS;
+}
+
+
 DLL_EXPORT BOOL APIENTRY DllMain(
 	_In_  HINSTANCE hinstDLL,
 	_In_  DWORD fdwReason,
