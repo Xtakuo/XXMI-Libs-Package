@@ -4183,6 +4183,9 @@ void LoadConfigFile()
 
 	G->gShowWarnings = GetIniBool(L"Logging", L"show_warnings", true, NULL);
 
+	// Allows to delay DLL initialization by given ms count
+	G->gDllInitializationDelay = GetIniInt(L"System", L"dll_initialization_delay", 0, NULL);
+
 	// [Include]
 	// If enabled, prevents loading of includes during initialization
 	G->gSkipEarlyIncludesLoad = GetIniBool(L"System", L"skip_early_includes_load", true, NULL);

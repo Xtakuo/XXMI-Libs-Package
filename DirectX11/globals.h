@@ -493,6 +493,7 @@ struct Globals
 	bool hide_cursor;
 	bool cursor_upscaling_bypass;
 	bool check_foreground_window;
+	int gDllInitializationDelay;
 	int gSettingsAutoSaveInterval;
 	int gConfigInitializationDelay;
 	bool gSkipEarlyIncludesLoad;
@@ -691,6 +692,7 @@ struct Globals
 		user_config_dirty(0),
 		gLogInput(false),
 		gShowWarnings(true),
+		gDllInitializationDelay(0),
 		gSettingsAutoSaveInterval(0),
 		gConfigInitializationDelay(0),
 		gSkipEarlyIncludesLoad(true),

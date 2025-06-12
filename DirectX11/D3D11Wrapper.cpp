@@ -6,6 +6,8 @@
 #include "HookedDXGI.h"
 
 #include <locale>
+#include <chrono>
+#include <thread>
 
 //#include <Shlobj.h>
 //#include <Winuser.h>
@@ -91,7 +93,7 @@ static bool verify_intended_target_late()
 
 static bool InitializeDLL()
 {
-	const char* default_locale = std::setlocale(LC_CTYPE, nullptr);
+	const char* default_locale = setlocale(LC_CTYPE, nullptr);
 	G->gDefaultLocale = default_locale ? default_locale : "";
 
 	if (G->gInitialized)
@@ -103,6 +105,11 @@ static bool InitializeDLL()
 	if (!G->bIntendedTargetExe) {
 		LogInfo("Executable does not match [Loader]Target setting, disabling core functionality\n");
 		return false;
+	}
+
+	if (G->gDllInitializationDelay > 0) {
+		LogInfo("Delaying DLL initialization by %dms...\n", G->gDllInitializationDelay);
+		this_thread::sleep_for(chrono::milliseconds(G->gDllInitializationDelay));
 	}
 
 	LogInfo("\n***  D3D11 DLL successfully initialized.  ***\n\n");
