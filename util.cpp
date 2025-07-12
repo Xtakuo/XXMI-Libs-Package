@@ -698,12 +698,6 @@ static LONG WINAPI migoto_exception_filter(_In_ struct _EXCEPTION_POINTERS *Exce
 						__debugbreak();
 						goto unlock;
 					}
-
-					if (GetAsyncKeyState('W') < 0) {
-						LogInfo("Attempting to switch to windowed mode...\n"); fflush(LogFile); Beep(1000, 100);
-						CreateThread(NULL, 0, crash_handler_switch_to_window, NULL, 0, NULL);
-						Sleep(1000);
-					}
 				}
 			}
 		}
@@ -713,30 +707,6 @@ unlock:
 	LeaveCriticalSection(&crash_handler_lock);
 
 	return ret;
-}
-
-static DWORD WINAPI exception_keyboard_monitor(_In_ LPVOID lpParameter)
-{
-	while (1) {
-		Sleep(1000);
-		if (GetAsyncKeyState(VK_CONTROL) < 0 &&
-		    GetAsyncKeyState(VK_MENU) < 0 &&
-		    GetAsyncKeyState(VK_F11) < 0) {
-			// User must be really committed to this to invoke the
-			// crash handler, and this is a simple measure against
-			// accidentally invoking it multiple times in a row:
-			Sleep(3000);
-			if (GetAsyncKeyState(VK_CONTROL) < 0 &&
-			    GetAsyncKeyState(VK_MENU) < 0 &&
-			    GetAsyncKeyState(VK_F11) < 0) {
-				// Make sure 3DMigoto's exception handler is
-				// still installed and trigger it:
-				SetUnhandledExceptionFilter(migoto_exception_filter);
-				RaiseException(0x3D819070, 0, 0, NULL);
-			}
-		}
-	}
-
 }
 
 void install_crash_handler(int level)
@@ -761,9 +731,5 @@ void install_crash_handler(int level)
 
 	LogInfo("  > Installed 3DMigoto crash handler, previous exception filter: %p, previous error mode: %x\n",
 			old_handler, old_mode);
-
-	// Spawn a thread to monitor for a keyboard salute to trigger the
-	// exception handler in the event of a hang/deadlock:
-	CreateThread(NULL, 0, exception_keyboard_monitor, NULL, 0, NULL);
 }
 #endif
