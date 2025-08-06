@@ -27,7 +27,7 @@ jobs:
         # Pad or trim to exactly 48 characters (same as placeholder)
         $replacement = $replacement.PadRight(48, 'X').Substring(0, 48)
 
-        $targetFile = "src/build_info.cpp"  # <- adjust to your file path
+        $targetFile = "DirectX11\globals.h"  # <- adjust to your file path
         (Get-Content $targetFile) -replace "PLACE_HOLDER_PLACE_HOLDER_XXXXXXXXXXXXXXXXXXXXXXXX", $replacement | Set-Content $targetFile
         Write-Host "Injected build ID: $replacement"
 
