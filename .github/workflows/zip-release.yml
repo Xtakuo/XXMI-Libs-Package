@@ -1,16 +1,13 @@
 name: Zip Release
 
-
 on:
   push:
     tags:
-      # Trigger on tags (i.e. v1.0.0, v2.1.0, etc)
-      - 'v*'
-      
-  workflow_dispatch:  
+      - 'v*'     # Trigger on version tags
+  workflow_dispatch:
+
 permissions:
   contents: write
-
 
 jobs:
   build:
@@ -20,11 +17,25 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
+    - name: Inject build ID into placeholder
+      shell: pwsh
+      run: |
+        $commitHash = "${{ github.sha }}".Substring(0, 12)
+        $randomHex = -join ((65..90) + (48..57) | Get-Random -Count 10 | ForEach-Object {[char]$_})
+        $replacement = "COMMIT-$commitHash-RAND-$randomHex"
+
+        # Pad or trim to exactly 48 characters (same as placeholder)
+        $replacement = $replacement.PadRight(48, 'X').Substring(0, 48)
+
+        $targetFile = "src/build_info.cpp"  # <- adjust to your file path
+        (Get-Content $targetFile) -replace "PLACE_HOLDER_PLACE_HOLDER_XXXXXXXXXXXXXXXXXXXXXXXX", $replacement | Set-Content $targetFile
+        Write-Host "Injected build ID: $replacement"
+
     - name: Add MSBuild for VS2022 to PATH
       uses: microsoft/setup-msbuild@v2
       with:
         vs-version: '[17.0,18.0)'
-        
+
     - name: Build solution
       run: msbuild StereoVisionHacks.sln -property:Configuration="Zip Release" -property:Platform=x64 -target:rebuild -verbosity:minimal
 
@@ -32,10 +43,9 @@ jobs:
       run: |
         $dll_files = Get-ChildItem -Path './x64/Zip Release' -Filter '*.dll'
         Compress-Archive -Path $dll_files.FullName -DestinationPath './LibrariesTemp.zip'
-        
+
     - name: Upload Zip as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: XXMI-PACKAGE-${{ github.sha }}
         path: ./LibrariesTemp.zip
-
