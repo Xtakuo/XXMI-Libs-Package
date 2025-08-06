@@ -7,7 +7,7 @@ on:
       # Trigger on tags (i.e. v1.0.0, v2.1.0, etc)
       - 'v*'
       
-
+  workflow_dispatch:  
 permissions:
   contents: write
 
