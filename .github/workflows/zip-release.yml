@@ -56,4 +56,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: XXMI-PACKAGE-${{ github.sha }}
-        path: ./XXMI-PACKAGE.zip
+        path: "x64/Zip Release"
