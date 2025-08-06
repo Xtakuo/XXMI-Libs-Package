@@ -23,13 +23,20 @@ jobs:
         $commitHash = "${{ github.sha }}".Substring(0, 12)
         $randomHex = -join ((65..90) + (48..57) | Get-Random -Count 10 | ForEach-Object {[char]$_})
         $replacement = "COMMIT-$commitHash-RAND-$randomHex"
-
-        # Pad or trim to exactly 48 characters (same as placeholder)
         $replacement = $replacement.PadRight(48, 'X').Substring(0, 48)
 
-        $targetFile = "DirectX11\globals.h"  # <- adjust to your file path
+        $targetFile = "DirectX11\globals.h"
         (Get-Content $targetFile) -replace "PLACE_HOLDER_PLACE_HOLDER_XXXXXXXXXXXXXXXXXXXXXXXX", $replacement | Set-Content $targetFile
         Write-Host "Injected build ID: $replacement"
+
+        # ✅ Verify the placeholder was replaced correctly
+        $fileContent = Get-Content $targetFile -Raw
+        if ($fileContent -notmatch [Regex]::Escape($replacement)) {
+          Write-Error "❌ Build ID replacement failed in $targetFile!"
+          exit 1
+        } else {
+          Write-Host "✅ Build ID replacement verified."
+        }
 
     - name: Add MSBuild for VS2022 to PATH
       uses: microsoft/setup-msbuild@v2
@@ -39,13 +46,14 @@ jobs:
     - name: Build solution
       run: msbuild StereoVisionHacks.sln -property:Configuration="Zip Release" -property:Platform=x64 -target:rebuild -verbosity:minimal
 
-    - name: Zip DLLs
+    - name: Zip DLLs directly (no zip-in-zip)
+      shell: pwsh
       run: |
-        $dll_files = Get-ChildItem -Path './x64/Zip Release' -Filter '*.dll'
-        Compress-Archive -Path $dll_files.FullName -DestinationPath './LibrariesTemp.zip'
+        $dll_files = Get-ChildItem -Path './x64/Zip Release' -Filter '*.dll' | Select-Object -ExpandProperty FullName
+        Compress-Archive -Path $dll_files -DestinationPath './XXMI-PACKAGE.zip'
 
     - name: Upload Zip as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: XXMI-PACKAGE-${{ github.sha }}
-        path: ./LibrariesTemp.zip
+        path: ./XXMI-PACKAGE.zip
