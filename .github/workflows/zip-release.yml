@@ -33,16 +33,6 @@ jobs:
         $dll_files = Get-ChildItem -Path './x64/Zip Release' -Filter '*.dll'
         Compress-Archive -Path $dll_files.FullName -DestinationPath './LibrariesTemp.zip'
         
-    - name: Create GitHub Release
-      id: create_release
-      uses: actions/create-release@v1
-      with:
-        tag_name: ${{ github.ref_name }}
-        release_name: ${{ github.ref_name }}
-        prerelease: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Upload Zip as Artifact
       uses: actions/upload-artifact@v4
       with:
