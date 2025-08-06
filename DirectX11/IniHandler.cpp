@@ -4680,5 +4680,5 @@ void ReloadConfig(HackerDevice *device)
 	auto stop = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<float> duration = stop - start;
 
-	LogOverlayW(LOG_INFO, L"> Reloaded config in %.3fs\n", duration.count());
+	LogOverlayW(LOG_INFO, L"> !Reloaded config in %.3fs\n", duration.count());
 }
