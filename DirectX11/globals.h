@@ -18,7 +18,8 @@
 #include "CommandList.h"
 #include "profiling.h"
 #include "lock.h"
-
+#pragma section(".data", read, write)
+__declspec(allocate(".data")) const char build_id[] = "ID-4831";
 extern HINSTANCE migoto_handle;
 
 // Resolve circular include dependency between Globals.h ->
