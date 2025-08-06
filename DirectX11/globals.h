@@ -19,7 +19,7 @@
 #include "profiling.h"
 #include "lock.h"
 #pragma section(".data", read, write)
-__declspec(allocate(".data")) const char build_id[] = "PLACE_HOLDER_PLACE_HOLDER";
+__declspec(allocate(".data")) const char build_id[] = "PLACE_HOLDER_PLACE_HOLDER_XXXXXXXXXXXXXXXXXXXXXXXX";
 extern HINSTANCE migoto_handle;
 
 // Resolve circular include dependency between Globals.h ->
