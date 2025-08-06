@@ -43,12 +43,9 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Upload Zip as Release Asset
-      uses: actions/upload-release-asset@v1
+    - name: Upload Zip as Artifact
+      uses: actions/upload-artifact@v4
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: './LibrariesTemp.zip'
-        asset_name: XXMI-PACKAGE-${{ github.ref_name }}.zip
-        asset_content_type: application/zip
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: XXMI-PACKAGE-${{ github.sha }}
+        path: ./LibrariesTemp.zip
+
